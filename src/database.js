@@ -391,12 +391,16 @@ export const db = {
 // Initialize sample data if tables are empty
 const initializeSampleData = async () => {
   try {
+    console.log('🔄 Initializing sample data in Supabase...');
+
     // Check if we have any data in the tables
     const [guruCount, siswaCount, settingsCount] = await Promise.all([
       supabase.from(TABLES.GURU).select('*', { count: 'exact', head: true }),
       supabase.from(TABLES.SISWA).select('*', { count: 'exact', head: true }),
       supabase.from(TABLES.ATTENDANCE_SETTINGS).select('*', { count: 'exact', head: true })
     ]);
+
+    console.log('📊 Table counts:', { guruCount: guruCount.count, siswaCount: siswaCount.count, settingsCount: settingsCount.count });
 
     const promises = [];
 
