@@ -8,6 +8,35 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../database';
 import AnimatedDialog from './AnimatedDialog';
 
+// Add mobile viewport fixes
+const mobileViewportStyles = `
+  /* Fix for mobile viewport height issues */
+  .mobile-camera-container {
+    height: 100dvh !important;
+    height: 100vh !important;
+  }
+
+  /* iOS Safari specific fixes */
+  @supports (-webkit-touch-callout: none) {
+    .mobile-camera-container {
+      height: -webkit-fill-available !important;
+      min-height: 100vh !important;
+    }
+  }
+
+  /* Ensure camera video fills container */
+  #qr-reader video {
+    object-fit: cover !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* Prevent zoom on input focus (iOS) */
+  #qr-reader {
+    touch-action: manipulation;
+  }
+`;
+
 const Scan = () => {
   const [scanResult, setScanResult] = useState('');
   const [scanMode, setScanMode] = useState('normal');
@@ -466,32 +495,47 @@ Terima kasih atas perhatian Anda 🙏`;
   };
 
   return (
-    <Box sx={{
-      height: '100vh',
-      width: '100vw',
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      bgcolor: 'black',
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden'
-    }}>
+    <>
+      {/* Inject mobile viewport styles */}
+      <style>{mobileViewportStyles}</style>
+
+      <Box sx={{
+        height: '100dvh', // Use dynamic viewport height for mobile
+        width: '100vw',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        bgcolor: 'black',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        // Mobile-specific fixes
+        '@supports (-webkit-touch-callout: none)': {
+          height: '-webkit-fill-available',
+          minHeight: '100vh'
+        }
+      }}>
       {/* Full Screen Scanner */}
       <Box sx={{
         flexGrow: 1,
         position: 'relative',
         width: '100vw',
-        height: '100vh',
+        height: '100dvh', // Use dynamic viewport height for mobile
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        // Mobile-specific fixes
+        '@supports (-webkit-touch-callout: none)': {
+          height: '-webkit-fill-available',
+          minHeight: '100vh'
+        }
       }}>
         <div
           id="qr-reader"
+          className="mobile-camera-container"
           style={{
             width: '100vw',
-            height: '100vh',
+            height: '100dvh', // Use dynamic viewport height for mobile
             position: 'absolute',
             top: 0,
             left: 0,
@@ -760,6 +804,7 @@ Terima kasih atas perhatian Anda 🙏`;
         </DialogActions>
       </AnimatedDialog>
     </Box>
+    </>
   );
 };
 
