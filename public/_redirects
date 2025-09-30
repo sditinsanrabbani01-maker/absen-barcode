@@ -1,0 +1,15 @@
+# Netlify redirects for SPA
+/*    /index.html   200
+
+# Cache static assets
+/assets/*  3600
+
+# API proxy for WhatsApp (if needed)
+/api/whatsapp/*  https://api.whacenter.com/api/:splat  200
+
+# Security headers
+/*
+  X-Frame-Options: DENY
+  X-XSS-Protection: 1; mode=block
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
