@@ -78,6 +78,14 @@ export const db = {
       });
     },
 
+    delete(id) {
+      return DatabaseService.delete(TABLES.GURU, id);
+    },
+
+    get(id) {
+      return DatabaseService.getById(TABLES.GURU, id);
+    },
+
     count() {
       // Execute count synchronously and return the number
       let result = 0;
@@ -170,6 +178,14 @@ export const db = {
         ...data,
         updated_at: new Date().toISOString()
       });
+    },
+
+    delete(id) {
+      return DatabaseService.delete(TABLES.SISWA, id);
+    },
+
+    get(id) {
+      return DatabaseService.getById(TABLES.SISWA, id);
     },
 
     count() {
@@ -267,8 +283,8 @@ export const db = {
       };
     },
 
-    async delete(id) {
-      return await DatabaseService.delete(TABLES.ATTENDANCE, id);
+    delete(id) {
+      return DatabaseService.delete(TABLES.ATTENDANCE, id);
     },
 
     async clear() {
@@ -332,8 +348,8 @@ export const db = {
       };
     },
 
-    async delete(id) {
-      return await DatabaseService.delete(TABLES.PERIZINAN, id);
+    delete(id) {
+      return DatabaseService.delete(TABLES.PERIZINAN, id);
     },
 
     async clear() {
@@ -406,8 +422,8 @@ export const db = {
       });
     },
 
-    async delete(id) {
-      return await DatabaseService.delete(TABLES.ATTENDANCE_SETTINGS, id);
+    delete(id) {
+      return DatabaseService.delete(TABLES.ATTENDANCE_SETTINGS, id);
     },
 
     where(field) {
