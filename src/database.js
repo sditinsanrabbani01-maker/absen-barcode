@@ -217,7 +217,7 @@ export const db = {
     where(field) {
       return {
         equals: (value) => {
-          return {
+          const queryResult = {
             and: (condition) => {
               return {
                 toArray: () => {
@@ -265,6 +265,7 @@ export const db = {
               };
             }
           };
+          return queryResult;
         }
       };
     },
