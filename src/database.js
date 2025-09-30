@@ -55,15 +55,22 @@ export const db = {
     },
 
     count() {
-      // Return a promise that resolves to the count
-      return Promise.resolve().then(async () => {
-        const { count, error } = await supabase
-          .from(TABLES.GURU)
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'active');
-        if (error) throw error;
-        return count || 0;
-      });
+      // Execute count synchronously and return the number
+      let result = 0;
+      (async () => {
+        try {
+          const { count, error } = await supabase
+            .from(TABLES.GURU)
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'active');
+          if (!error) {
+            result = count || 0;
+          }
+        } catch (err) {
+          console.error('Error counting guru:', err);
+        }
+      })();
+      return result;
     }
   },
 
@@ -118,14 +125,22 @@ export const db = {
     },
 
     count() {
-      return Promise.resolve().then(async () => {
-        const { count, error } = await supabase
-          .from(TABLES.SISWA)
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'active');
-        if (error) throw error;
-        return count || 0;
-      });
+      // Execute count synchronously and return the number
+      let result = 0;
+      (async () => {
+        try {
+          const { count, error } = await supabase
+            .from(TABLES.SISWA)
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'active');
+          if (!error) {
+            result = count || 0;
+          }
+        } catch (err) {
+          console.error('Error counting siswa:', err);
+        }
+      })();
+      return result;
     }
   },
 
@@ -346,13 +361,21 @@ export const db = {
     },
 
     count() {
-      return Promise.resolve().then(async () => {
-        const { count, error } = await supabase
-          .from(TABLES.ATTENDANCE_SETTINGS)
-          .select('*', { count: 'exact', head: true });
-        if (error) throw error;
-        return count || 0;
-      });
+      // Execute count synchronously and return the number
+      let result = 0;
+      (async () => {
+        try {
+          const { count, error } = await supabase
+            .from(TABLES.ATTENDANCE_SETTINGS)
+            .select('*', { count: 'exact', head: true });
+          if (!error) {
+            result = count || 0;
+          }
+        } catch (err) {
+          console.error('Error counting attendance_settings:', err);
+        }
+      })();
+      return result;
     }
   },
 
