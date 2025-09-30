@@ -189,24 +189,21 @@ const Database = ({ mode }) => {
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        // Filter out empty rows and merged cells
-        const filteredData = jsonData.filter(item => {
-          // Skip if no name or name is just whitespace
+        // Filter out empty rows and headers
+        const filteredData = jsonData.filter((item, index) => {
+          // Skip header row (index 0)
+          if (index === 0) return false;
+
+          // Skip if no name
           if (!item.nama || !item.nama.trim()) return false;
 
-          // Skip merged cells - check if this looks like a header or merged row
+          // Skip obvious header rows
           const name = item.nama.trim().toLowerCase();
-          if (name.includes('contoh') || name.includes('template') || name.includes('data siswa') || name.includes('data guru')) {
+          if (name.includes('nama') || name.includes('contoh') || name.includes('template')) {
             return false;
           }
 
-          // Skip if all fields are the same (likely merged cells)
-          const fields = [item.nama, item.identifier, item.jabatan, item.sebagai, item.email, item.wa];
-          const nonEmptyFields = fields.filter(field => field && typeof field === 'string' && field.trim());
-          if (nonEmptyFields.length === 1 && typeof item.nama === 'string' && nonEmptyFields[0] === item.nama.trim()) {
-            return false; // Likely a merged cell with only name
-          }
-
+          // Accept data even if some fields are missing
           return true;
         });
 
@@ -245,51 +242,55 @@ const Database = ({ mode }) => {
             let added = 0;
 
             for (const item of guruDataImport) {
-              // Validate required fields
-              if (!item.nama || !item.nama.trim()) {
-                continue;
-              }
-
-              // Determine role and generate identifier if needed
-              const role = item.sebagai === 'Guru' ? 'Guru' : 'Guru'; // Default to Guru for this section
-              let identifier = item.identifier ? item.identifier.toString().trim() : '';
-
-              if (!identifier) {
-                identifier = await generateIdentifier(role);
-              }
-
-              // Check if guru with same name already exists
-              const existingByName = await db.guru.where('nama').equals(item.nama.trim()).first();
-
-              if (existingByName) {
-                // Update existing record
-                await db.guru.update(existingByName.id, {
-                  niy: identifier,
-                  jabatan: item.jabatan || existingByName.jabatan,
-                  sebagai: role,
-                  email: item.email || existingByName.email,
-                  wa: item.wa || existingByName.wa,
-                  status: 'active'
-                });
-                updated++;
-              } else {
-                // Check if NIY already exists
-                const existingByNiy = await db.guru.where('niy').equals(identifier).first();
-
-                if (!existingByNiy) {
-                  // Add new record
-                  const newGuru = {
-                    nama: item.nama.trim(),
-                    niy: identifier,
-                    jabatan: item.jabatan || '',
-                    sebagai: role,
-                    email: item.email || '',
-                    wa: item.wa || '',
-                    status: 'active'
-                  };
-                  await db.guru.add(newGuru);
-                  added++;
+              try {
+                // Validate required fields
+                if (!item.nama || !item.nama.trim()) {
+                  continue;
                 }
+
+                // Determine role and generate identifier if needed
+                const role = item.sebagai === 'Guru' ? 'Guru' : 'Guru'; // Default to Guru for this section
+                let identifier = item.identifier ? item.identifier.toString().trim() : '';
+
+                if (!identifier) {
+                  identifier = await generateIdentifier(role);
+                }
+
+                // Check if guru with same name already exists
+                const existingByName = await db.guru.where('nama').equals(item.nama.trim()).first();
+
+                if (existingByName) {
+                  // Update existing record
+                  await db.guru.update(existingByName.id, {
+                    niy: identifier,
+                    jabatan: item.jabatan || existingByName.jabatan,
+                    sebagai: role,
+                    email: item.email || existingByName.email,
+                    wa: item.wa || existingByName.wa,
+                    status: 'active'
+                  });
+                  updated++;
+                } else {
+                  // Check if NIY already exists
+                  const existingByNiy = await db.guru.where('niy').equals(identifier).first();
+
+                  if (!existingByNiy) {
+                    // Add new record
+                    const newGuru = {
+                      nama: item.nama.trim(),
+                      niy: identifier,
+                      jabatan: item.jabatan || '',
+                      sebagai: role,
+                      email: item.email || '',
+                      wa: item.wa || '',
+                      status: 'active'
+                    };
+                    await db.guru.add(newGuru);
+                    added++;
+                  }
+                }
+              } catch (error) {
+                console.error('Error processing guru item:', item, error);
               }
             }
 
@@ -301,6 +302,8 @@ const Database = ({ mode }) => {
             guruAdded = result.added;
             guruUpdated = result.updated;
             loadData();
+          }).catch(error => {
+            console.error('Error in processGuruData:', error);
           });
         }
 
@@ -311,51 +314,55 @@ const Database = ({ mode }) => {
             let added = 0;
 
             for (const item of siswaDataImport) {
-              // Validate required fields
-              if (!item.nama || !item.nama.trim()) {
-                continue;
-              }
-
-              // Determine role and generate identifier if needed
-              const role = item.sebagai === 'Siswa' || !item.sebagai ? 'Siswa' : 'Siswa'; // Default to Siswa for this section
-              let identifier = item.identifier ? item.identifier.toString().trim() : '';
-
-              if (!identifier) {
-                identifier = await generateIdentifier(role);
-              }
-
-              // Check if siswa with same name already exists
-              const existingByName = await db.siswa.where('nama').equals(item.nama.trim()).first();
-
-              if (existingByName) {
-                // Update existing record
-                await db.siswa.update(existingByName.id, {
-                  nisn: identifier,
-                  jabatan: item.jabatan || existingByName.jabatan,
-                  sebagai: role,
-                  email: item.email || existingByName.email,
-                  wa: item.wa || existingByName.wa,
-                  status: 'active'
-                });
-                updated++;
-              } else {
-                // Check if NISN already exists
-                const existingByNisn = await db.siswa.where('nisn').equals(identifier).first();
-
-                if (!existingByNisn) {
-                  // Add new record
-                  const newSiswa = {
-                    nama: item.nama.trim(),
-                    nisn: identifier,
-                    jabatan: item.jabatan || '',
-                    sebagai: role,
-                    email: item.email || '',
-                    wa: item.wa || '',
-                    status: 'active'
-                  };
-                  await db.siswa.add(newSiswa);
-                  added++;
+              try {
+                // Validate required fields
+                if (!item.nama || !item.nama.trim()) {
+                  continue;
                 }
+
+                // Determine role and generate identifier if needed
+                const role = item.sebagai === 'Siswa' || !item.sebagai ? 'Siswa' : 'Siswa'; // Default to Siswa for this section
+                let identifier = item.identifier ? item.identifier.toString().trim() : '';
+
+                if (!identifier) {
+                  identifier = await generateIdentifier(role);
+                }
+
+                // Check if siswa with same name already exists
+                const existingByName = await db.siswa.where('nama').equals(item.nama.trim()).first();
+
+                if (existingByName) {
+                  // Update existing record
+                  await db.siswa.update(existingByName.id, {
+                    nisn: identifier,
+                    jabatan: item.jabatan || existingByName.jabatan,
+                    sebagai: role,
+                    email: item.email || existingByName.email,
+                    wa: item.wa || existingByName.wa,
+                    status: 'active'
+                  });
+                  updated++;
+                } else {
+                  // Check if NISN already exists
+                  const existingByNisn = await db.siswa.where('nisn').equals(identifier).first();
+
+                  if (!existingByNisn) {
+                    // Add new record
+                    const newSiswa = {
+                      nama: item.nama.trim(),
+                      nisn: identifier,
+                      jabatan: item.jabatan || '',
+                      sebagai: role,
+                      email: item.email || '',
+                      wa: item.wa || '',
+                      status: 'active'
+                    };
+                    await db.siswa.add(newSiswa);
+                    added++;
+                  }
+                }
+              } catch (error) {
+                console.error('Error processing siswa item:', item, error);
               }
             }
 
@@ -367,6 +374,8 @@ const Database = ({ mode }) => {
             siswaAdded = result.added;
             siswaUpdated = result.updated;
             loadData();
+          }).catch(error => {
+            console.error('Error in processSiswaData:', error);
           });
         }
 
