@@ -5,30 +5,93 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>absen-barcode</title>
-    <!-- Preload main module to ensure correct MIME type -->
-    <link rel="modulepreload" href="/src/main.jsx" />
   </head>
   <body>
     <div id="root"></div>
-    <script type="module">
-      // Inline import to avoid MIME type issues
-      import('/src/main.jsx').catch(err => {
-        console.error('Failed to load main module:', err);
-        // Fallback for development
-        if (err.message.includes('MIME type')) {
-          console.log('MIME type error detected, trying alternative load...');
-          // Try loading with fetch first
-          fetch('/src/main.jsx')
-            .then(r => r.text())
-            .then(code => {
-              // Create a blob with correct MIME type
-              const blob = new Blob([code], { type: 'text/javascript' });
-              const url = URL.createObjectURL(blob);
-              import(url).then(() => URL.revokeObjectURL(url));
+    <script>
+      // Comprehensive fallback loader for MIME type issues
+      (function() {
+        const loadApp = () => {
+          // Try multiple methods to load the main module
+          const tryLoad = (method) => {
+            return new Promise((resolve, reject) => {
+              switch(method) {
+                case 'direct':
+                  import('/src/main.jsx')
+                    .then(resolve)
+                    .catch(err => {
+                      if (err.message.includes('MIME type')) {
+                        reject(new Error('MIME_TYPE'));
+                      } else {
+                        reject(err);
+                      }
+                    });
+                  break;
+
+                case 'fetch-blob':
+                  fetch('/src/main.jsx')
+                    .then(r => {
+                      if (!r.ok) throw new Error('Fetch failed');
+                      return r.text();
+                    })
+                    .then(code => {
+                      const blob = new Blob([code], { type: 'text/javascript' });
+                      const url = URL.createObjectURL(blob);
+                      return import(url).then(module => {
+                        URL.revokeObjectURL(url);
+                        resolve(module);
+                      });
+                    })
+                    .catch(reject);
+                  break;
+
+                case 'proxy':
+                  // Try loading from a different path
+                  fetch('/assets/index.js')
+                    .then(r => r.text())
+                    .then(code => {
+                      const blob = new Blob([code], { type: 'text/javascript' });
+                      const url = URL.createObjectURL(blob);
+                      return import(url).then(module => {
+                        URL.revokeObjectURL(url);
+                        resolve(module);
+                      });
+                    })
+                    .catch(reject);
+                  break;
+              }
+            });
+          };
+
+          // Try methods in order
+          return tryLoad('direct')
+            .catch(err => {
+              if (err.message === 'MIME_TYPE') {
+                console.log('Direct load failed due to MIME type, trying fetch-blob...');
+                return tryLoad('fetch-blob');
+              }
+              throw err;
             })
-            .catch(err => console.error('Fallback also failed:', err));
-        }
-      });
+            .catch(err => {
+              console.log('Fetch-blob failed, trying proxy method...', err.message);
+              return tryLoad('proxy');
+            })
+            .catch(err => {
+              console.error('All loading methods failed:', err);
+              // Show error message to user
+              document.getElementById('root').innerHTML =
+                '<div style="padding: 20px; text-align: center; color: red;">' +
+                '<h2>Loading Error</h2>' +
+                '<p>Unable to load application modules. This may be due to server configuration issues.</p>' +
+                '<p>Please try refreshing the page or contact support.</p>' +
+                '<button onclick="location.reload()">Refresh Page</button>' +
+                '</div>';
+            });
+        };
+
+        // Start loading
+        loadApp();
+      })();
     </script>
   </body>
 </html>
