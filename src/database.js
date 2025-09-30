@@ -8,31 +8,32 @@ export const db = {
       return await DatabaseService.getGuru(true);
     },
 
-    async where(field) {
+    where(field) {
       return {
-        equals(value) {
+        equals: async (value) => {
+          if (field === 'status') {
+            const data = await DatabaseService.getGuru(value === 'active');
+            return {
+              toArray: async () => data,
+              first: async () => data[0] || null
+            };
+          }
+          if (field === 'nama') {
+            const { data, error } = await supabase
+              .from(TABLES.GURU)
+              .select('*')
+              .eq('nama', value)
+              .eq('status', 'active');
+            if (error) throw error;
+            return {
+              toArray: async () => data,
+              first: async () => data[0] || null
+            };
+          }
+          // For other fields, return empty result
           return {
-            async toArray() {
-              if (field === 'status') {
-                return await DatabaseService.getGuru(value === 'active');
-              }
-              if (field === 'nama') {
-                const { data, error } = await supabase
-                  .from(TABLES.GURU)
-                  .select('*')
-                  .eq('nama', value)
-                  .eq('status', 'active');
-                if (error) throw error;
-                return data;
-              }
-              // For other fields, return empty array for now
-              return [];
-            },
-
-            async first() {
-              const results = await this.toArray();
-              return results[0] || null;
-            }
+            toArray: async () => [],
+            first: async () => null
           };
         }
       };
@@ -69,30 +70,31 @@ export const db = {
       return await DatabaseService.getSiswa(true);
     },
 
-    async where(field) {
+    where(field) {
       return {
-        equals(value) {
+        equals: async (value) => {
+          if (field === 'status') {
+            const data = await DatabaseService.getSiswa(value === 'active');
+            return {
+              toArray: async () => data,
+              first: async () => data[0] || null
+            };
+          }
+          if (field === 'nama') {
+            const { data, error } = await supabase
+              .from(TABLES.SISWA)
+              .select('*')
+              .eq('nama', value)
+              .eq('status', 'active');
+            if (error) throw error;
+            return {
+              toArray: async () => data,
+              first: async () => data[0] || null
+            };
+          }
           return {
-            async toArray() {
-              if (field === 'status') {
-                return await DatabaseService.getSiswa(value === 'active');
-              }
-              if (field === 'nama') {
-                const { data, error } = await supabase
-                  .from(TABLES.SISWA)
-                  .select('*')
-                  .eq('nama', value)
-                  .eq('status', 'active');
-                if (error) throw error;
-                return data;
-              }
-              return [];
-            },
-
-            async first() {
-              const results = await this.toArray();
-              return results[0] || null;
-            }
+            toArray: async () => [],
+            first: async () => null
           };
         }
       };
@@ -145,13 +147,13 @@ export const db = {
       });
     },
 
-    async where(field) {
+    where(field) {
       return {
-        equals(value) {
+        equals: (value) => {
           return {
-            async and(condition) {
+            and: (condition) => {
               return {
-                async toArray() {
+                toArray: async () => {
                   if (field === 'identifier') {
                     const { data, error } = await supabase
                       .from(TABLES.ATTENDANCE)
@@ -212,13 +214,13 @@ export const db = {
       });
     },
 
-    async where(field) {
+    where(field) {
       return {
-        equals(value) {
+        equals: (value) => {
           return {
-            async and(condition) {
+            and: (condition) => {
               return {
-                async toArray() {
+                toArray: async () => {
                   if (field === 'tanggal') {
                     const { data, error } = await supabase
                       .from(TABLES.PERIZINAN)
@@ -230,7 +232,7 @@ export const db = {
                   return [];
                 },
 
-                async first() {
+                first: async () => {
                   const results = await this.toArray();
                   return results[0] || null;
                 }
@@ -303,11 +305,11 @@ export const db = {
       return await DatabaseService.delete(TABLES.ATTENDANCE_SETTINGS, id);
     },
 
-    async where(field) {
+    where(field) {
       return {
-        equals(value) {
+        equals: (value) => {
           return {
-            async first() {
+            first: async () => {
               const { data, error } = await supabase
                 .from(TABLES.ATTENDANCE_SETTINGS)
                 .select('*')
@@ -317,7 +319,7 @@ export const db = {
               return data[0] || null;
             },
 
-            async toArray() {
+            toArray: async () => {
               const { data, error } = await supabase
                 .from(TABLES.ATTENDANCE_SETTINGS)
                 .select('*')
