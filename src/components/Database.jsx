@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Checkbox, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import * as XLSX from 'xlsx';
+import { CloudUpload, CloudDownload } from '@mui/icons-material';
 import { db } from '../database';
+import { DataMigrationService } from '../config/supabase';
 
 const Database = ({ mode }) => {
   const [guruData, setGuruData] = useState([]);
@@ -14,6 +16,9 @@ const Database = ({ mode }) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [mutasiDialogOpen, setMutasiDialogOpen] = useState(false);
   const [alasan, setAlasan] = useState('');
+  const [migrationDialog, setMigrationDialog] = useState(false);
+  const [migrationResults, setMigrationResults] = useState(null);
+  const [isMigrating, setIsMigrating] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -22,6 +27,21 @@ const Database = ({ mode }) => {
   const loadData = () => {
     db.guru.where('status').equals('active').toArray().then(guru => setGuruData(guru));
     db.siswa.where('status').equals('active').toArray().then(siswa => setSiswaData(siswa));
+  };
+
+  const handleMigrateToSupabase = async () => {
+    setIsMigrating(true);
+    try {
+      const results = await DataMigrationService.syncLocalToSupabase();
+      setMigrationResults(results);
+      alert('✅ Migrasi berhasil! Data lokal sudah disinkronisasi ke Supabase.');
+    } catch (error) {
+      console.error('Migration error:', error);
+      alert('❌ Migrasi gagal: ' + error.message);
+    } finally {
+      setIsMigrating(false);
+      setMigrationDialog(false);
+    }
   };
 
   const handleDownloadTemplate = () => {
@@ -546,6 +566,15 @@ const Database = ({ mode }) => {
           📥 Restore Data
           <input type="file" accept=".json" hidden onChange={handleImportAllData} />
         </Button>
+        <Button
+          variant="contained"
+          color="secondary"
+          startIcon={<CloudUpload />}
+          onClick={() => setMigrationDialog(true)}
+          disabled={isMigrating}
+        >
+          {isMigrating ? '🔄 Migrating...' : '☁️ Sync ke Supabase'}
+        </Button>
         <Button variant="contained" color="primary" onClick={() => handleOpen()}>
           Tambah Manual
         </Button>
@@ -722,6 +751,64 @@ const Database = ({ mode }) => {
         <DialogActions>
           <Button onClick={() => setMutasiDialogOpen(false)}>Cancel</Button>
           <Button onClick={confirmMutasi}>Konfirmasi</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Migration Dialog */}
+      <Dialog open={migrationDialog} onClose={() => !isMigrating && setMigrationDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CloudUpload /> Migrasi Data ke Supabase
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Sinkronisasi data lokal ke database Supabase cloud. Pastikan RLS policies sudah dikonfigurasi dengan benar.
+          </Typography>
+
+          {migrationResults && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'success.light', borderRadius: 1 }}>
+              <Typography variant="h6" gutterBottom color="success.dark">
+                ✅ Migrasi Berhasil!
+              </Typography>
+
+              <Typography variant="body2" component="div">
+                <strong>Hasil Migrasi:</strong><br/>
+                • Guru: {migrationResults.guru?.synced || 0} synced, {migrationResults.guru?.skipped || 0} skipped<br/>
+                • Siswa: {migrationResults.siswa?.synced || 0} synced, {migrationResults.siswa?.skipped || 0} skipped<br/>
+                • Attendance: {migrationResults.attendance?.synced || 0} synced, {migrationResults.attendance?.skipped || 0} skipped<br/>
+                • Perizinan: {migrationResults.perizinan?.synced || 0} synced, {migrationResults.perizinan?.skipped || 0} skipped<br/>
+                • Settings: {migrationResults.settings?.settingsSynced || 0} synced, {migrationResults.settings?.settingsSkipped || 0} skipped<br/>
+                • School Settings: {migrationResults.settings?.schoolSettings || 0} synced
+              </Typography>
+            </Box>
+          )}
+
+          <Box sx={{ mt: 3, p: 2, bgcolor: 'info.main', color: 'white', borderRadius: 1 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              ℹ️ Cara Kerja Migrasi:
+            </Typography>
+            <Typography variant="body2" component="div">
+              • <strong>Data lokal</strong> dibaca dari browser storage<br/>
+              • <strong>Duplicate check</strong> - data yang sudah ada di Supabase dilewati<br/>
+              • <strong>Sync otomatis</strong> - data baru diinsert, existing diupdate<br/>
+              • <strong>Batch processing</strong> untuk performa optimal<br/>
+              • <strong>Rollback safe</strong> - jika error, tidak ada data yang hilang
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMigrationDialog(false)} disabled={isMigrating}>
+            {migrationResults ? 'Tutup' : 'Batal'}
+          </Button>
+          {!migrationResults && (
+            <Button
+              onClick={handleMigrateToSupabase}
+              variant="contained"
+              disabled={isMigrating}
+              startIcon={<CloudUpload />}
+            >
+              {isMigrating ? '🔄 Memigrasi...' : '🚀 Mulai Migrasi'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

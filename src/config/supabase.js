@@ -29,6 +29,334 @@ export const TABLES = {
   REMINDER_SETTINGS: 'reminder_settings'
 }
 
+// Data migration utilities
+export class DataMigrationService {
+  // Migrate local Dexie data to Supabase
+  static async migrateFromDexie() {
+    console.log('🔄 Starting data migration from Dexie to Supabase...');
+
+    try {
+      // Import Dexie database for migration
+      const { db: dexieDb } = await import('../database.js');
+
+      // Migrate each table
+      const results = {
+        guru: await this.migrateGuru(dexieDb),
+        siswa: await this.migrateSiswa(dexieDb),
+        attendance: await this.migrateAttendance(dexieDb),
+        perizinan: await this.migratePerizinan(dexieDb),
+        attendance_settings: await this.migrateAttendanceSettings(dexieDb),
+        school_settings: await this.migrateSchoolSettings(dexieDb),
+        reminder_settings: await this.migrateReminderSettings(dexieDb)
+      };
+
+      console.log('✅ Migration completed:', results);
+      return results;
+
+    } catch (error) {
+      console.error('❌ Migration failed:', error);
+      throw error;
+    }
+  }
+
+  static async migrateGuru(dexieDb) {
+    try {
+      const localGuru = await dexieDb.guru.toArray();
+      console.log(`📚 Migrating ${localGuru.length} guru records...`);
+
+      if (localGuru.length === 0) return { migrated: 0, skipped: 0 };
+
+      let migrated = 0;
+      let skipped = 0;
+
+      for (const guru of localGuru) {
+        try {
+          // Check if already exists in Supabase
+          const { data: existing } = await supabase
+            .from(TABLES.GURU)
+            .select('id')
+            .eq('niy', guru.niy)
+            .single();
+
+          if (existing) {
+            skipped++;
+            continue;
+          }
+
+          // Insert to Supabase
+          await supabase.from(TABLES.GURU).insert({
+            nama: guru.nama,
+            niy: guru.niy,
+            jabatan: guru.jabatan,
+            sebagai: guru.sebagai,
+            email: guru.email,
+            wa: guru.wa,
+            status: guru.status || 'active',
+            pendidikan: guru.pendidikan,
+            mk_start_year: guru.mk_start_year,
+            mk_start_month: guru.mk_start_month,
+            gaji_pokok: guru.gaji_pokok,
+            tunjangan_kinerja: guru.tunjangan_kinerja,
+            tunjangan_umum: guru.tunjangan_umum,
+            tunjangan_istri: guru.tunjangan_istri,
+            tunjangan_anak: guru.tunjangan_anak,
+            tunjangan_kepala_sekolah: guru.tunjangan_kepala_sekolah,
+            tunjangan_wali_kelas: guru.tunjangan_wali_kelas,
+            honor_bendahara: guru.honor_bendahara,
+            keterangan: guru.keterangan,
+            custom_base_salary: guru.custom_base_salary
+          });
+          migrated++;
+        } catch (error) {
+          console.error(`Error migrating guru ${guru.nama}:`, error);
+          skipped++;
+        }
+      }
+
+      return { migrated, skipped };
+    } catch (error) {
+      console.error('Error in migrateGuru:', error);
+      return { migrated: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateSiswa(dexieDb) {
+    try {
+      const localSiswa = await dexieDb.siswa.toArray();
+      console.log(`📚 Migrating ${localSiswa.length} siswa records...`);
+
+      if (localSiswa.length === 0) return { migrated: 0, skipped: 0 };
+
+      let migrated = 0;
+      let skipped = 0;
+
+      for (const siswa of localSiswa) {
+        try {
+          // Check if already exists
+          const { data: existing } = await supabase
+            .from(TABLES.SISWA)
+            .select('id')
+            .eq('nisn', siswa.nisn)
+            .single();
+
+          if (existing) {
+            skipped++;
+            continue;
+          }
+
+          await supabase.from(TABLES.SISWA).insert({
+            nama: siswa.nama,
+            nisn: siswa.nisn,
+            jabatan: siswa.jabatan,
+            sebagai: siswa.sebagai,
+            email: siswa.email,
+            wa: siswa.wa,
+            status: siswa.status || 'active'
+          });
+          migrated++;
+        } catch (error) {
+          console.error(`Error migrating siswa ${siswa.nama}:`, error);
+          skipped++;
+        }
+      }
+
+      return { migrated, skipped };
+    } catch (error) {
+      console.error('Error in migrateSiswa:', error);
+      return { migrated: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateAttendance(dexieDb) {
+    try {
+      const localAttendance = await dexieDb.attendance.toArray();
+      console.log(`📚 Migrating ${localAttendance.length} attendance records...`);
+
+      if (localAttendance.length === 0) return { migrated: 0, skipped: 0 };
+
+      // Migrate in batches for better performance
+      const batchSize = 50;
+      let migrated = 0;
+      let skipped = 0;
+
+      for (let i = 0; i < localAttendance.length; i += batchSize) {
+        const batch = localAttendance.slice(i, i + batchSize);
+
+        try {
+          const attendanceData = batch.map(att => ({
+            tanggal: att.tanggal,
+            identifier: att.identifier,
+            nama: att.nama,
+            jabatan: att.jabatan,
+            jam: att.jam,
+            status: att.status,
+            keterangan: att.keterangan,
+            sebagai: att.sebagai,
+            wa: att.wa,
+            email: att.email,
+            att: att.att
+          }));
+
+          const { error } = await supabase
+            .from(TABLES.ATTENDANCE)
+            .insert(attendanceData);
+
+          if (error) {
+            console.error('Error in attendance batch:', error);
+            skipped += batch.length;
+          } else {
+            migrated += batch.length;
+          }
+        } catch (error) {
+          console.error('Error processing attendance batch:', error);
+          skipped += batch.length;
+        }
+      }
+
+      return { migrated, skipped };
+    } catch (error) {
+      console.error('Error in migrateAttendance:', error);
+      return { migrated: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migratePerizinan(dexieDb) {
+    try {
+      const localPerizinan = await dexieDb.perizinan.toArray();
+      console.log(`📚 Migrating ${localPerizinan.length} perizinan records...`);
+
+      if (localPerizinan.length === 0) return { migrated: 0, skipped: 0 };
+
+      let migrated = 0;
+      let skipped = 0;
+
+      for (const izin of localPerizinan) {
+        try {
+          await supabase.from(TABLES.PERIZINAN).insert({
+            tanggal: izin.tanggal,
+            tanggal_mulai: izin.tanggal_mulai,
+            tanggal_selesai: izin.tanggal_selesai,
+            identifier: izin.identifier,
+            nama: izin.nama,
+            status: izin.status || 'Disetujui',
+            jenis_izin: izin.jenis_izin,
+            keterangan: izin.keterangan,
+            sebagai: izin.sebagai
+          });
+          migrated++;
+        } catch (error) {
+          console.error(`Error migrating perizinan ${izin.nama}:`, error);
+          skipped++;
+        }
+      }
+
+      return { migrated, skipped };
+    } catch (error) {
+      console.error('Error in migratePerizinan:', error);
+      return { migrated: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateAttendanceSettings(dexieDb) {
+    try {
+      const localSettings = await dexieDb.attendance_settings.toArray();
+      console.log(`📚 Migrating ${localSettings.length} attendance_settings records...`);
+
+      if (localSettings.length === 0) return { migrated: 0, skipped: 0 };
+
+      let migrated = 0;
+      let skipped = 0;
+
+      for (const setting of localSettings) {
+        try {
+          await supabase.from(TABLES.ATTENDANCE_SETTINGS).insert({
+            type: setting.type,
+            start_time: setting.start_time,
+            end_time: setting.end_time,
+            att: setting.att,
+            label: setting.label,
+            group_name: setting.group_name
+          });
+          migrated++;
+        } catch (error) {
+          console.error(`Error migrating setting ${setting.label}:`, error);
+          skipped++;
+        }
+      }
+
+      return { migrated, skipped };
+    } catch (error) {
+      console.error('Error in migrateAttendanceSettings:', error);
+      return { migrated: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateSchoolSettings(dexieDb) {
+    try {
+      const { data: existing } = await supabase
+        .from(TABLES.SCHOOL_SETTINGS)
+        .select('id')
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return { migrated: 0, skipped: 1 }; // Already exists
+      }
+
+      // Get local school settings
+      const localSettings = await dexieDb.school_settings.toCollection().first();
+
+      if (!localSettings) return { migrated: 0, skipped: 0 };
+
+      await supabase.from(TABLES.SCHOOL_SETTINGS).insert({
+        nama_sekolah: localSettings.nama_sekolah,
+        npsn: localSettings.npsn,
+        alamat_desa: localSettings.alamat_desa,
+        alamat_kecamatan: localSettings.alamat_kecamatan,
+        alamat_kabupaten: localSettings.alamat_kabupaten,
+        alamat_provinsi: localSettings.alamat_provinsi,
+        alamat_negara: localSettings.alamat_negara,
+        nama_kepala_sekolah: localSettings.nama_kepala_sekolah,
+        niy_kepala_sekolah: localSettings.niy_kepala_sekolah
+      });
+
+      return { migrated: 1, skipped: 0 };
+    } catch (error) {
+      console.error('Error in migrateSchoolSettings:', error);
+      return { migrated: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateReminderSettings(dexieDb) {
+    try {
+      const { data: existing } = await supabase
+        .from(TABLES.REMINDER_SETTINGS)
+        .select('id')
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return { migrated: 0, skipped: 1 }; // Already exists
+      }
+
+      // Get local reminder settings
+      const localSettings = await dexieDb.reminder_settings.toCollection().first();
+
+      if (!localSettings) return { migrated: 0, skipped: 0 };
+
+      await supabase.from(TABLES.REMINDER_SETTINGS).insert({
+        enabled: localSettings.enabled,
+        reminder_time: localSettings.reminder_time,
+        test_mode: localSettings.test_mode,
+        last_reminder_date: localSettings.last_reminder_date
+      });
+
+      return { migrated: 1, skipped: 0 };
+    } catch (error) {
+      console.error('Error in migrateReminderSettings:', error);
+      return { migrated: 0, skipped: 0, error: error.message };
+    }
+  }
+}
+
 // Helper functions for common database operations
 export class DatabaseService {
   // Generic CRUD operations
@@ -164,6 +492,310 @@ export class DatabaseService {
     if (siswaData.error) throw siswaData.error
 
     return [...data, ...siswaData.data]
+  }
+
+  // Migration function to sync local data to Supabase
+  static async syncLocalToSupabase() {
+    console.log('🔄 Starting sync from local to Supabase...');
+
+    try {
+      // Import the database module to access local data
+      const { db } = await import('../database.js');
+
+      const results = {
+        guru: await this.migrateGuruFromLocal(db),
+        siswa: await this.migrateSiswaFromLocal(db),
+        attendance: await this.migrateAttendanceFromLocal(db),
+        perizinan: await this.migratePerizinanFromLocal(db),
+        settings: await this.migrateSettingsFromLocal(db)
+      };
+
+      console.log('✅ Sync completed:', results);
+      return results;
+
+    } catch (error) {
+      console.error('❌ Sync failed:', error);
+      throw error;
+    }
+  }
+
+  static async migrateGuruFromLocal(db) {
+    try {
+      const localGuru = await db.guru.toArray();
+      console.log(`📚 Syncing ${localGuru.length} guru records...`);
+
+      if (localGuru.length === 0) return { synced: 0, skipped: 0 };
+
+      let synced = 0;
+      let skipped = 0;
+
+      for (const guru of localGuru) {
+        try {
+          // Check if already exists
+          const { data: existing } = await supabase
+            .from(TABLES.GURU)
+            .select('id')
+            .eq('niy', guru.niy)
+            .single();
+
+          if (existing) {
+            // Update existing record
+            await supabase
+              .from(TABLES.GURU)
+              .update({
+                nama: guru.nama,
+                jabatan: guru.jabatan,
+                sebagai: guru.sebagai,
+                email: guru.email,
+                wa: guru.wa,
+                status: guru.status || 'active',
+                pendidikan: guru.pendidikan,
+                mk_start_year: guru.mk_start_year,
+                mk_start_month: guru.mk_start_month,
+                gaji_pokok: guru.gaji_pokok,
+                tunjangan_kinerja: guru.tunjangan_kinerja,
+                tunjangan_umum: guru.tunjangan_umum,
+                tunjangan_istri: guru.tunjangan_istri,
+                tunjangan_anak: guru.tunjangan_anak,
+                tunjangan_kepala_sekolah: guru.tunjangan_kepala_sekolah,
+                tunjangan_wali_kelas: guru.tunjangan_wali_kelas,
+                honor_bendahara: guru.honor_bendahara,
+                keterangan: guru.keterangan,
+                custom_base_salary: guru.custom_base_salary,
+                updated_at: new Date().toISOString()
+              })
+              .eq('niy', guru.niy);
+            synced++;
+          } else {
+            // Insert new record
+            await supabase.from(TABLES.GURU).insert({
+              nama: guru.nama,
+              niy: guru.niy,
+              jabatan: guru.jabatan,
+              sebagai: guru.sebagai,
+              email: guru.email,
+              wa: guru.wa,
+              status: guru.status || 'active',
+              pendidikan: guru.pendidikan,
+              mk_start_year: guru.mk_start_year,
+              mk_start_month: guru.mk_start_month,
+              gaji_pokok: guru.gaji_pokok,
+              tunjangan_kinerja: guru.tunjangan_kinerja,
+              tunjangan_umum: guru.tunjangan_umum,
+              tunjangan_istri: guru.tunjangan_istri,
+              tunjangan_anak: guru.tunjangan_anak,
+              tunjangan_kepala_sekolah: guru.tunjangan_kepala_sekolah,
+              tunjangan_wali_kelas: guru.tunjangan_wali_kelas,
+              honor_bendahara: guru.honor_bendahara,
+              keterangan: guru.keterangan,
+              custom_base_salary: guru.custom_base_salary
+            });
+            synced++;
+          }
+        } catch (error) {
+          console.error(`Error syncing guru ${guru.nama}:`, error);
+          skipped++;
+        }
+      }
+
+      return { synced, skipped };
+    } catch (error) {
+      console.error('Error in migrateGuruFromLocal:', error);
+      return { synced: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateSiswaFromLocal(db) {
+    try {
+      const localSiswa = await db.siswa.toArray();
+      console.log(`📚 Syncing ${localSiswa.length} siswa records...`);
+
+      if (localSiswa.length === 0) return { synced: 0, skipped: 0 };
+
+      let synced = 0;
+      let skipped = 0;
+
+      for (const siswa of localSiswa) {
+        try {
+          // Check if already exists
+          const { data: existing } = await supabase
+            .from(TABLES.SISWA)
+            .select('id')
+            .eq('nisn', siswa.nisn)
+            .single();
+
+          if (existing) {
+            // Update existing
+            await supabase
+              .from(TABLES.SISWA)
+              .update({
+                nama: siswa.nama,
+                jabatan: siswa.jabatan,
+                sebagai: siswa.sebagai,
+                email: siswa.email,
+                wa: siswa.wa,
+                status: siswa.status || 'active',
+                updated_at: new Date().toISOString()
+              })
+              .eq('nisn', siswa.nisn);
+            synced++;
+          } else {
+            // Insert new
+            await supabase.from(TABLES.SISWA).insert({
+              nama: siswa.nama,
+              nisn: siswa.nisn,
+              jabatan: siswa.jabatan,
+              sebagai: siswa.sebagai,
+              email: siswa.email,
+              wa: siswa.wa,
+              status: siswa.status || 'active'
+            });
+            synced++;
+          }
+        } catch (error) {
+          console.error(`Error syncing siswa ${siswa.nama}:`, error);
+          skipped++;
+        }
+      }
+
+      return { synced, skipped };
+    } catch (error) {
+      console.error('Error in migrateSiswaFromLocal:', error);
+      return { synced: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateAttendanceFromLocal(db) {
+    try {
+      const localAttendance = await db.attendance.toArray();
+      console.log(`📚 Syncing ${localAttendance.length} attendance records...`);
+
+      if (localAttendance.length === 0) return { synced: 0, skipped: 0 };
+
+      let synced = 0;
+      let skipped = 0;
+
+      for (const att of localAttendance) {
+        try {
+          await supabase.from(TABLES.ATTENDANCE).insert({
+            tanggal: att.tanggal,
+            identifier: att.identifier,
+            nama: att.nama,
+            jabatan: att.jabatan,
+            jam: att.jam,
+            status: att.status,
+            keterangan: att.keterangan,
+            sebagai: att.sebagai,
+            wa: att.wa,
+            email: att.email,
+            att: att.att
+          });
+          synced++;
+        } catch (error) {
+          console.error(`Error syncing attendance ${att.nama}:`, error);
+          skipped++;
+        }
+      }
+
+      return { synced, skipped };
+    } catch (error) {
+      console.error('Error in migrateAttendanceFromLocal:', error);
+      return { synced: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migratePerizinanFromLocal(db) {
+    try {
+      const localPerizinan = await db.perizinan.toArray();
+      console.log(`📚 Syncing ${localPerizinan.length} perizinan records...`);
+
+      if (localPerizinan.length === 0) return { synced: 0, skipped: 0 };
+
+      let synced = 0;
+      let skipped = 0;
+
+      for (const izin of localPerizinan) {
+        try {
+          await supabase.from(TABLES.PERIZINAN).insert({
+            tanggal: izin.tanggal,
+            tanggal_mulai: izin.tanggal_mulai,
+            tanggal_selesai: izin.tanggal_selesai,
+            identifier: izin.identifier,
+            nama: izin.nama,
+            status: izin.status || 'Disetujui',
+            jenis_izin: izin.jenis_izin,
+            keterangan: izin.keterangan,
+            sebagai: izin.sebagai
+          });
+          synced++;
+        } catch (error) {
+          console.error(`Error syncing perizinan ${izin.nama}:`, error);
+          skipped++;
+        }
+      }
+
+      return { synced, skipped };
+    } catch (error) {
+      console.error('Error in migratePerizinanFromLocal:', error);
+      return { synced: 0, skipped: 0, error: error.message };
+    }
+  }
+
+  static async migrateSettingsFromLocal(db) {
+    try {
+      // Migrate attendance settings
+      const localSettings = await db.attendance_settings.toArray();
+
+      let settingsSynced = 0;
+      let settingsSkipped = 0;
+
+      for (const setting of localSettings) {
+        try {
+          await supabase.from(TABLES.ATTENDANCE_SETTINGS).insert({
+            type: setting.type,
+            start_time: setting.start_time,
+            end_time: setting.end_time,
+            att: setting.att,
+            label: setting.label,
+            group_name: setting.group_name
+          });
+          settingsSynced++;
+        } catch (error) {
+          console.error(`Error syncing setting ${setting.label}:`, error);
+          settingsSkipped++;
+        }
+      }
+
+      // Migrate school settings
+      const schoolSettings = await db.school_settings.toCollection().first();
+
+      if (schoolSettings) {
+        try {
+          await supabase.from(TABLES.SCHOOL_SETTINGS).insert({
+            nama_sekolah: schoolSettings.nama_sekolah,
+            npsn: schoolSettings.npsn,
+            alamat_desa: schoolSettings.alamat_desa,
+            alamat_kecamatan: schoolSettings.alamat_kecamatan,
+            alamat_kabupaten: schoolSettings.alamat_kabupaten,
+            alamat_provinsi: schoolSettings.alamat_provinsi,
+            alamat_negara: schoolSettings.alamat_negara,
+            nama_kepala_sekolah: schoolSettings.nama_kepala_sekolah,
+            niy_kepala_sekolah: schoolSettings.niy_kepala_sekolah
+          });
+        } catch (error) {
+          console.error('Error syncing school settings:', error);
+        }
+      }
+
+      return {
+        settingsSynced,
+        settingsSkipped,
+        schoolSettings: schoolSettings ? 1 : 0
+      };
+    } catch (error) {
+      console.error('Error in migrateSettingsFromLocal:', error);
+      return { settingsSynced: 0, settingsSkipped: 0, error: error.message };
+    }
   }
 }
 
