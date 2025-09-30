@@ -1,52 +1,400 @@
-import Dexie from 'dexie';
+import { supabase, DatabaseService, TABLES } from './config/supabase.js';
 
-export const db = new Dexie('AbsenBarcodeDB');
+// Database wrapper to maintain compatibility with existing code
+export const db = {
+  // Guru operations
+  guru: {
+    async toArray() {
+      return await DatabaseService.getGuru(true);
+    },
 
-// Simplified database - only siswa data
-// Complete database with guru and siswa data
-db.version(12).stores({
-  guru: '++id, nama, niy, jabatan, sebagai, email, wa, status',
-  siswa: '++id, nama, nisn, jabatan, sebagai, email, wa, status',
-  attendance: '++id, [identifier+tanggal], tanggal, identifier, nama, jabatan, jam, status, keterangan, sebagai, wa, email, att',
-  penggajian: '++id, nama, jabatan, gaji, bulan',
-  guru_inactive: '++id, nama, niy, jabatan, sebagai, email, wa, status, tanggal_keluar, alasan',
-  siswa_inactive: '++id, nama, nisn, jabatan, sebagai, email, wa, status, tanggal_keluar, alasan',
-  attendance_settings: '++id, type, start_time, end_time, att, label, group_name',
-  perizinan: '++id, [identifier+tanggal], [identifier+tanggal_mulai], tanggal, tanggal_mulai, tanggal_selesai, identifier, nama, status, jenis_izin, keterangan, sebagai',
-  school_settings: '++id, nama_sekolah, npsn, alamat_desa, alamat_kecamatan, alamat_kabupaten, alamat_provinsi, alamat_negara, nama_kepala_sekolah, niy_kepala_sekolah',
-  reminder_settings: '++id, enabled, reminder_time, test_mode, last_reminder_date'
-}).upgrade(tx => {
-  // Migrate existing data to add status
-  tx.table('guru').toCollection().modify(guru => {
-    if (!guru.status) guru.status = 'active';
-  });
-  tx.table('siswa').toCollection().modify(siswa => {
-    if (!siswa.status) siswa.status = 'active';
-  });
-});
+    async where(field) {
+      return {
+        equals(value) {
+          return {
+            async toArray() {
+              if (field === 'status') {
+                return await DatabaseService.getGuru(value === 'active');
+              }
+              if (field === 'nama') {
+                const { data, error } = await supabase
+                  .from(TABLES.GURU)
+                  .select('*')
+                  .eq('nama', value)
+                  .eq('status', 'active');
+                if (error) throw error;
+                return data;
+              }
+              // For other fields, return empty array for now
+              return [];
+            },
 
-// Populate with sample data - ensure data exists
-db.open().then(() => {
-  // Always check and add sample data if tables are empty
-  const addSampleData = async () => {
-    const guruCount = await db.guru.count();
-    const siswaCount = await db.siswa.count();
-    const attendanceCount = await db.attendance.count();
-    const penggajianCount = await db.penggajian.count();
-    const schoolSettingsCount = await db.school_settings.count();
+            async first() {
+              const results = await this.toArray();
+              return results[0] || null;
+            }
+          };
+        }
+      };
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.GURU, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async update(id, data) {
+      return await DatabaseService.update(TABLES.GURU, id, {
+        ...data,
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async count() {
+      const { count, error } = await supabase
+        .from(TABLES.GURU)
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+      if (error) throw error;
+      return count;
+    }
+  },
+
+  // Siswa operations
+  siswa: {
+    async toArray() {
+      return await DatabaseService.getSiswa(true);
+    },
+
+    async where(field) {
+      return {
+        equals(value) {
+          return {
+            async toArray() {
+              if (field === 'status') {
+                return await DatabaseService.getSiswa(value === 'active');
+              }
+              if (field === 'nama') {
+                const { data, error } = await supabase
+                  .from(TABLES.SISWA)
+                  .select('*')
+                  .eq('nama', value)
+                  .eq('status', 'active');
+                if (error) throw error;
+                return data;
+              }
+              return [];
+            },
+
+            async first() {
+              const results = await this.toArray();
+              return results[0] || null;
+            }
+          };
+        }
+      };
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.SISWA, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async update(id, data) {
+      return await DatabaseService.update(TABLES.SISWA, id, {
+        ...data,
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async count() {
+      const { count, error } = await supabase
+        .from(TABLES.SISWA)
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+      if (error) throw error;
+      return count;
+    }
+  },
+
+  // Attendance operations
+  attendance: {
+    async toArray() {
+      // Get current month data for performance
+      const currentDate = new Date();
+      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+      return await DatabaseService.getAttendanceByDateRange(
+        startOfMonth.toISOString().split('T')[0],
+        endOfMonth.toISOString().split('T')[0]
+      );
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.ATTENDANCE, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async where(field) {
+      return {
+        equals(value) {
+          return {
+            async and(condition) {
+              return {
+                async toArray() {
+                  if (field === 'identifier') {
+                    const { data, error } = await supabase
+                      .from(TABLES.ATTENDANCE)
+                      .select('*')
+                      .eq('identifier', value);
+                    if (error) throw error;
+                    return data;
+                  }
+                  if (field === 'tanggal') {
+                    const { data, error } = await supabase
+                      .from(TABLES.ATTENDANCE)
+                      .select('*')
+                      .eq('tanggal', value);
+                    if (error) throw error;
+                    return data;
+                  }
+                  return [];
+                }
+              };
+            }
+          };
+        }
+      };
+    },
+
+    async delete(id) {
+      return await DatabaseService.delete(TABLES.ATTENDANCE, id);
+    },
+
+    async clear() {
+      const { error } = await supabase
+        .from(TABLES.ATTENDANCE)
+        .delete()
+        .neq('id', 0); // Delete all records
+      if (error) throw error;
+    }
+  },
+
+  // Perizinan operations
+  perizinan: {
+    async toArray() {
+      // Get current month data for performance
+      const currentDate = new Date();
+      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+      return await DatabaseService.getPerizinanByDateRange(
+        startOfMonth.toISOString().split('T')[0],
+        endOfMonth.toISOString().split('T')[0]
+      );
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.PERIZINAN, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async where(field) {
+      return {
+        equals(value) {
+          return {
+            async and(condition) {
+              return {
+                async toArray() {
+                  if (field === 'tanggal') {
+                    const { data, error } = await supabase
+                      .from(TABLES.PERIZINAN)
+                      .select('*')
+                      .eq('tanggal', value);
+                    if (error) throw error;
+                    return data;
+                  }
+                  return [];
+                },
+
+                async first() {
+                  const results = await this.toArray();
+                  return results[0] || null;
+                }
+              };
+            }
+          };
+        }
+      };
+    },
+
+    async delete(id) {
+      return await DatabaseService.delete(TABLES.PERIZINAN, id);
+    },
+
+    async clear() {
+      const { error } = await supabase
+        .from(TABLES.PERIZINAN)
+        .delete()
+        .neq('id', 0); // Delete all records
+      if (error) throw error;
+    }
+  },
+
+  // School settings operations
+  school_settings: {
+    async toCollection() {
+      return {
+        async first() {
+          const { data, error } = await supabase
+            .from(TABLES.SCHOOL_SETTINGS)
+            .select('*')
+            .limit(1);
+          if (error) throw error;
+          return data[0] || null;
+        }
+      };
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.SCHOOL_SETTINGS, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    }
+  },
+
+  // Attendance settings operations
+  attendance_settings: {
+    async toArray() {
+      return await DatabaseService.getAll(TABLES.ATTENDANCE_SETTINGS);
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.ATTENDANCE_SETTINGS, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async update(id, data) {
+      return await DatabaseService.update(TABLES.ATTENDANCE_SETTINGS, id, {
+        ...data,
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async delete(id) {
+      return await DatabaseService.delete(TABLES.ATTENDANCE_SETTINGS, id);
+    },
+
+    async where(field) {
+      return {
+        equals(value) {
+          return {
+            async first() {
+              const { data, error } = await supabase
+                .from(TABLES.ATTENDANCE_SETTINGS)
+                .select('*')
+                .eq(field, value)
+                .limit(1);
+              if (error) throw error;
+              return data[0] || null;
+            },
+
+            async toArray() {
+              const { data, error } = await supabase
+                .from(TABLES.ATTENDANCE_SETTINGS)
+                .select('*')
+                .eq(field, value);
+              if (error) throw error;
+              return data;
+            }
+          };
+        }
+      };
+    },
+
+    async count() {
+      const { count, error } = await supabase
+        .from(TABLES.ATTENDANCE_SETTINGS)
+        .select('*', { count: 'exact', head: true });
+      if (error) throw error;
+      return count;
+    }
+  },
+
+  // Reminder settings operations
+  reminder_settings: {
+    async toCollection() {
+      return {
+        async first() {
+          const { data, error } = await supabase
+            .from(TABLES.REMINDER_SETTINGS)
+            .select('*')
+            .limit(1);
+          if (error) throw error;
+          return data[0] || null;
+        }
+      };
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.REMINDER_SETTINGS, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async update(id, data) {
+      return await DatabaseService.update(TABLES.REMINDER_SETTINGS, id, {
+        ...data,
+        updated_at: new Date().toISOString()
+      });
+    }
+  }
+};
+
+// Initialize sample data if tables are empty
+const initializeSampleData = async () => {
+  try {
+    // Check if we have any data in the tables
+    const [guruCount, siswaCount, settingsCount] = await Promise.all([
+      supabase.from(TABLES.GURU).select('*', { count: 'exact', head: true }),
+      supabase.from(TABLES.SISWA).select('*', { count: 'exact', head: true }),
+      supabase.from(TABLES.ATTENDANCE_SETTINGS).select('*', { count: 'exact', head: true })
+    ]);
 
     const promises = [];
 
-    if (guruCount === 0) {
+    // Add sample guru if empty
+    if ((guruCount.count || 0) === 0) {
       const sampleGuru = [
         { nama: 'Ahmad Santoso', niy: 'G001', jabatan: 'Guru Matematika', sebagai: 'Guru', email: 'ahmad@school.com', wa: '08123456789', status: 'active' },
         { nama: 'Siti Aminah', niy: 'G002', jabatan: 'Guru Bahasa Indonesia', sebagai: 'Guru', email: 'siti@school.com', wa: '08198765432', status: 'active' },
         { nama: 'Budi Setiawan', niy: 'G003', jabatan: 'Guru IPA', sebagai: 'Guru', email: 'budi@school.com', wa: '08134567890', status: 'active' }
       ];
-      promises.push(db.guru.bulkAdd(sampleGuru));
+      promises.push(DatabaseService.bulkCreate(TABLES.GURU, sampleGuru));
     }
 
-    if (siswaCount === 0) {
+    // Add sample siswa if empty
+    if ((siswaCount.count || 0) === 0) {
       const sampleSiswa = [
         { nama: 'Rina Sari', nisn: 'S001', jabatan: 'Kelas 10A', sebagai: 'Siswa', email: 'rina@school.com', wa: '08111111111', status: 'active' },
         { nama: 'Dedi Kurniawan', nisn: 'S002', jabatan: 'Kelas 10A', sebagai: 'Siswa', email: 'dedi@school.com', wa: '08122222222', status: 'active' },
@@ -54,72 +402,31 @@ db.open().then(() => {
         { nama: 'Andi Rahman', nisn: 'S004', jabatan: 'Kelas 10B', sebagai: 'Siswa', email: 'andi@school.com', wa: '08144444444', status: 'active' },
         { nama: 'Sari Dewi', nisn: 'S005', jabatan: 'Kelas 11A', sebagai: 'Siswa', email: 'sari@school.com', wa: '08155555555', status: 'active' }
       ];
-      promises.push(db.siswa.bulkAdd(sampleSiswa));
+      promises.push(DatabaseService.bulkCreate(TABLES.SISWA, sampleSiswa));
     }
 
-    if (attendanceCount === 0) {
-      const sampleAttendance = [
-        // January 15, 2024 - Full attendance day
-        { tanggal: '2024-01-15', identifier: 'S001', nama: 'Rina Sari', jabatan: 'Kelas 10A', jam: '07:30', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08111111111', email: 'rina@school.com' },
-        { tanggal: '2024-01-15', identifier: 'S002', nama: 'Dedi Kurniawan', jabatan: 'Kelas 10A', jam: '07:35', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08122222222', email: 'dedi@school.com' },
-        { tanggal: '2024-01-15', identifier: 'S003', nama: 'Maya Putri', jabatan: 'Kelas 10B', jam: '07:40', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08133333333', email: 'maya@school.com' },
-        { tanggal: '2024-01-15', identifier: 'S004', nama: 'Andi Rahman', jabatan: 'Kelas 10B', jam: '07:45', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08144444444', email: 'andi@school.com' },
-        { tanggal: '2024-01-15', identifier: 'S005', nama: 'Sari Dewi', jabatan: 'Kelas 11A', jam: '07:50', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08155555555', email: 'sari@school.com' },
-        { tanggal: '2024-01-15', identifier: 'G001', nama: 'Ahmad Santoso', jabatan: 'Guru Matematika', jam: '07:00', status: 'datang', keterangan: '', sebagai: 'Guru', wa: '08123456789', email: 'ahmad@school.com' },
-        { tanggal: '2024-01-15', identifier: 'G002', nama: 'Siti Aminah', jabatan: 'Guru Bahasa Indonesia', jam: '07:05', status: 'datang', keterangan: '', sebagai: 'Guru', wa: '08198765432', email: 'siti@school.com' },
-        { tanggal: '2024-01-15', identifier: 'G003', nama: 'Budi Setiawan', jabatan: 'Guru IPA', jam: '07:10', status: 'datang', keterangan: '', sebagai: 'Guru', wa: '08134567890', email: 'budi@school.com' },
-
-        // January 16, 2024 - Mixed attendance (some izin, sakit)
-        { tanggal: '2024-01-16', identifier: 'S001', nama: 'Rina Sari', jabatan: 'Kelas 10A', jam: '07:30', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08111111111', email: 'rina@school.com' },
-        { tanggal: '2024-01-16', identifier: 'S002', nama: 'Dedi Kurniawan', jabatan: 'Kelas 10A', jam: '07:35', status: 'Izin', keterangan: 'Sakit', sebagai: 'Siswa', wa: '08122222222', email: 'dedi@school.com' },
-        { tanggal: '2024-01-16', identifier: 'S003', nama: 'Maya Putri', jabatan: 'Kelas 10B', jam: '07:40', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08133333333', email: 'maya@school.com' },
-        { tanggal: '2024-01-16', identifier: 'S004', nama: 'Andi Rahman', jabatan: 'Kelas 10B', jam: '07:45', status: 'Sakit', keterangan: 'Demam', sebagai: 'Siswa', wa: '08144444444', email: 'andi@school.com' },
-        { tanggal: '2024-01-16', identifier: 'S005', nama: 'Sari Dewi', jabatan: 'Kelas 11A', jam: '07:50', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08155555555', email: 'sari@school.com' },
-        { tanggal: '2024-01-16', identifier: 'G001', nama: 'Ahmad Santoso', jabatan: 'Guru Matematika', jam: '07:00', status: 'datang', keterangan: '', sebagai: 'Guru', wa: '08123456789', email: 'ahmad@school.com' },
-        { tanggal: '2024-01-16', identifier: 'G002', nama: 'Siti Aminah', jabatan: 'Guru Bahasa Indonesia', jam: '07:05', status: 'datang', keterangan: '', sebagai: 'Guru', wa: '08198765432', email: 'siti@school.com' },
-        { tanggal: '2024-01-16', identifier: 'G003', nama: 'Budi Setiawan', jabatan: 'Guru IPA', jam: '07:10', status: 'Izin', keterangan: 'Kegiatan dinas', sebagai: 'Guru', wa: '08134567890', email: 'budi@school.com' },
-
-        // January 17, 2024 - More mixed attendance
-        { tanggal: '2024-01-17', identifier: 'S001', nama: 'Rina Sari', jabatan: 'Kelas 10A', jam: '07:30', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08111111111', email: 'rina@school.com' },
-        { tanggal: '2024-01-17', identifier: 'S002', nama: 'Dedi Kurniawan', jabatan: 'Kelas 10A', jam: '07:35', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08122222222', email: 'dedi@school.com' },
-        { tanggal: '2024-01-17', identifier: 'S003', nama: 'Maya Putri', jabatan: 'Kelas 10B', jam: '07:40', status: 'Sakit', keterangan: 'Flu', sebagai: 'Siswa', wa: '08133333333', email: 'maya@school.com' },
-        { tanggal: '2024-01-17', identifier: 'S004', nama: 'Andi Rahman', jabatan: 'Kelas 10B', jam: '07:45', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08144444444', email: 'andi@school.com' },
-        { tanggal: '2024-01-17', identifier: 'S005', nama: 'Sari Dewi', jabatan: 'Kelas 11A', jam: '07:50', status: 'datang', keterangan: '', sebagai: 'Siswa', wa: '08155555555', email: 'sari@school.com' },
-        { tanggal: '2024-01-17', identifier: 'G001', nama: 'Ahmad Santoso', jabatan: 'Guru Matematika', jam: '07:00', status: 'datang', keterangan: '', sebagai: 'Guru', wa: '08123456789', email: 'ahmad@school.com' },
-        { tanggal: '2024-01-17', identifier: 'G002', nama: 'Siti Aminah', jabatan: 'Guru Bahasa Indonesia', jam: '07:05', status: 'Sakit', keterangan: 'Migraine', sebagai: 'Guru', wa: '08198765432', email: 'siti@school.com' },
-        { tanggal: '2024-01-17', identifier: 'G003', nama: 'Budi Setiawan', jabatan: 'Guru IPA', jam: '07:10', status: 'datang', keterangan: '', sebagai: 'Guru', wa: '08134567890', email: 'budi@school.com' }
-      ];
-      promises.push(db.attendance.bulkAdd(sampleAttendance));
-    }
-
-    if (penggajianCount === 0) {
-      const samplePenggajian = [
-        { nama: 'Ahmad Santoso', jabatan: 'Guru Matematika', gaji: 3500000, bulan: 'Januari 2024' },
-        { nama: 'Siti Aminah', jabatan: 'Guru Bahasa Indonesia', gaji: 3200000, bulan: 'Januari 2024' }
-      ];
-      promises.push(db.penggajian.bulkAdd(samplePenggajian));
-    }
-
-    // Add default attendance settings
-    const settingsCount = await db.attendance_settings.count();
-    if (settingsCount === 0) {
+    // Add default attendance settings if empty
+    if ((settingsCount.count || 0) === 0) {
       const defaultSettings = [
-        // Guru settings
         { type: 'guru', start_time: '06:00', end_time: '07:30', att: 'Datang', label: 'Tepat Waktu' },
         { type: 'guru', start_time: '07:30', end_time: '08:00', att: 'Datang', label: 'Tahap 1' },
         { type: 'guru', start_time: '08:00', end_time: '15:00', att: 'Datang', label: 'Tahap 2' },
         { type: 'guru', start_time: '15:00', end_time: '17:00', att: 'Pulang', label: 'Pulang' },
-
-        // Siswa settings
         { type: 'siswa', start_time: '06:00', end_time: '07:30', att: 'Datang', label: 'Tepat Waktu' },
         { type: 'siswa', start_time: '07:30', end_time: '08:00', att: 'Datang', label: 'Tahap 1' },
         { type: 'siswa', start_time: '08:00', end_time: '12:00', att: 'Datang', label: 'Tahap 2' },
         { type: 'siswa', start_time: '12:00', end_time: '17:00', att: 'Pulang', label: 'Pulang' }
       ];
-      promises.push(db.attendance_settings.bulkAdd(defaultSettings));
+      promises.push(DatabaseService.bulkCreate(TABLES.ATTENDANCE_SETTINGS, defaultSettings));
     }
 
-    if (schoolSettingsCount === 0) {
+    // Add default school settings if empty
+    const { data: schoolSettings } = await supabase
+      .from(TABLES.SCHOOL_SETTINGS)
+      .select('*')
+      .limit(1);
+
+    if (!schoolSettings || schoolSettings.length === 0) {
       const defaultSchoolSettings = {
         nama_sekolah: 'SMA Negeri 1 Makassar',
         npsn: '40300123',
@@ -131,15 +438,17 @@ db.open().then(() => {
         nama_kepala_sekolah: 'Dr. H. Ahmad Yani, M.Pd.',
         niy_kepala_sekolah: '197001011990011001'
       };
-      promises.push(db.school_settings.add(defaultSchoolSettings));
+      promises.push(DatabaseService.create(TABLES.SCHOOL_SETTINGS, defaultSchoolSettings));
     }
 
-    return Promise.all(promises);
-  };
+    await Promise.all(promises);
+    console.log('✅ Sample data initialized in Supabase');
+  } catch (error) {
+    console.error('❌ Error initializing sample data:', error);
+  }
+};
 
-  return addSampleData();
-}).catch(err => {
-  console.error('Database initialization error:', err);
-});
+// Initialize sample data when module loads
+initializeSampleData();
 
 export default db;
