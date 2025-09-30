@@ -110,9 +110,12 @@ const Scan = () => {
 
       const scannerConfig = getScannerConfig(scannerSize);
       const config = {
-        fps: 10,
+        fps: 15, // Increased from 10 for smoother scanning
         qrbox: scannerConfig.qrbox,
-        aspectRatio: window.innerWidth / window.innerHeight
+        aspectRatio: 1.0, // Use square aspect ratio for better QR detection
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: false // Disable for better compatibility
+        }
       };
 
       await html5QrCodeRef.current.start(
@@ -459,21 +462,21 @@ Terima kasih atas perhatian Anda 🙏`;
     const viewportHeight = window.innerHeight;
     const aspectRatio = viewportWidth / viewportHeight;
 
-    // Responsive sizing based on screen orientation
+    // Responsive sizing based on screen orientation - increased base size for better visibility
     let baseSize;
     if (aspectRatio > 1) {
-      // Landscape (16:9)
-      baseSize = Math.min(viewportWidth * 0.6, viewportHeight * 0.8);
+      // Landscape (16:9) - use more screen space
+      baseSize = Math.min(viewportWidth * 0.9, viewportHeight * 0.95);
     } else {
-      // Portrait (9:16)
-      baseSize = Math.min(viewportWidth * 0.8, viewportHeight * 0.6);
+      // Portrait (9:16) - use more screen space
+      baseSize = Math.min(viewportWidth * 0.95, viewportHeight * 0.9);
     }
 
     const configs = [
-      { qrbox: { width: Math.floor(baseSize * 0.3), height: Math.floor(baseSize * 0.3) }, label: 'KECIL' }, // 0: Kecil - 30% of responsive base
-      { qrbox: { width: Math.floor(baseSize * 0.5), height: Math.floor(baseSize * 0.5) }, label: 'SEDANG' }, // 1: Sedang - 50% of responsive base
-      { qrbox: { width: Math.floor(baseSize * 0.7), height: Math.floor(baseSize * 0.7) }, label: 'BESAR' }, // 2: Besar - 70% of responsive base
-      { qrbox: { width: Math.floor(baseSize * 0.9), height: Math.floor(baseSize * 0.9) }, label: 'FULL' } // 3: Full - 90% of responsive base (almost full screen)
+      { qrbox: { width: Math.floor(baseSize * 0.4), height: Math.floor(baseSize * 0.4) }, label: 'KECIL' }, // 0: Kecil - 40% (increased from 30%)
+      { qrbox: { width: Math.floor(baseSize * 0.6), height: Math.floor(baseSize * 0.6) }, label: 'SEDANG' }, // 1: Sedang - 60% (increased from 50%)
+      { qrbox: { width: Math.floor(baseSize * 0.8), height: Math.floor(baseSize * 0.8) }, label: 'BESAR' }, // 2: Besar - 80% (increased from 70%)
+      { qrbox: { width: Math.floor(baseSize * 0.95), height: Math.floor(baseSize * 0.95) }, label: 'FULL' } // 3: Full - 95% (increased from 90%)
     ];
     return configs[size];
   };
@@ -543,6 +546,91 @@ Terima kasih atas perhatian Anda 🙏`;
             transition: 'transform 0.3s ease-in-out'
           }}
         ></div>
+
+        {/* QR Code Scanning Guide Overlay */}
+        <Box sx={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none',
+          zIndex: 5
+        }}>
+          {(() => {
+            const currentConfig = getScannerConfig(scannerSize);
+            return (
+              <Box sx={{
+                width: currentConfig.qrbox.width,
+                height: currentConfig.qrbox.height,
+                border: '3px solid #4caf50',
+                borderRadius: 2,
+                position: 'relative',
+                boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
+                background: 'transparent'
+              }}>
+            {/* Corner indicators */}
+            <Box sx={{
+              position: 'absolute',
+              top: -2,
+              left: -2,
+              width: 20,
+              height: 20,
+              borderTop: '4px solid #4caf50',
+              borderLeft: '4px solid #4caf50',
+              borderTopLeftRadius: 8
+            }} />
+            <Box sx={{
+              position: 'absolute',
+              top: -2,
+              right: -2,
+              width: 20,
+              height: 20,
+              borderTop: '4px solid #4caf50',
+              borderRight: '4px solid #4caf50',
+              borderTopRightRadius: 8
+            }} />
+            <Box sx={{
+              position: 'absolute',
+              bottom: -2,
+              left: -2,
+              width: 20,
+              height: 20,
+              borderBottom: '4px solid #4caf50',
+              borderLeft: '4px solid #4caf50',
+              borderBottomLeftRadius: 8
+            }} />
+            <Box sx={{
+              position: 'absolute',
+              bottom: -2,
+              right: -2,
+              width: 20,
+              height: 20,
+              borderBottom: '4px solid #4caf50',
+              borderRight: '4px solid #4caf50',
+              borderBottomRightRadius: 8
+            }} />
+
+            {/* Center guide text */}
+            <Box sx={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              color: '#4caf50',
+              fontSize: '0.8rem',
+              fontWeight: 'bold',
+              textAlign: 'center',
+              background: 'rgba(0, 0, 0, 0.7)',
+              px: 1,
+              py: 0.5,
+              borderRadius: 1
+            }}>
+              QR CODE
+            </Box>
+              </Box>
+            );
+          })()}
+        </Box>
 
         {/* Floating Control Buttons */}
         <Box sx={{
