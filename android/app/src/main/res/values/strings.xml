@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Absen Barcode</string>
+    <string name="title_activity_main">Absen Barcode</string>
+    <string name="package_name">com.absen.barcode</string>
+    <string name="custom_url_scheme">com.absen.barcode</string>
+</resources>
