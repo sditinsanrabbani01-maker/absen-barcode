@@ -7,91 +7,124 @@
     <title>absen-barcode</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="padding: 20px; text-align: center;">
+        <h2>Loading Application...</h2>
+        <p>Please wait while we load the application modules.</p>
+        <div style="margin: 20px 0;">
+          <div style="width: 200px; height: 4px; background: #eee; margin: 0 auto; border-radius: 2px; overflow: hidden;">
+            <div style="width: 100%; height: 100%; background: linear-gradient(90deg, #007bff, #0056b3); animation: loading 1.5s ease-in-out infinite;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <script>
-      // Comprehensive fallback loader for MIME type issues
+      // Ultimate fallback loader with multiple strategies
       (function() {
-        const loadApp = () => {
-          // Try multiple methods to load the main module
-          const tryLoad = (method) => {
-            return new Promise((resolve, reject) => {
-              switch(method) {
-                case 'direct':
-                  import('/src/main.jsx')
-                    .then(resolve)
-                    .catch(err => {
-                      if (err.message.includes('MIME type')) {
-                        reject(new Error('MIME_TYPE'));
-                      } else {
-                        reject(err);
-                      }
-                    });
-                  break;
-
-                case 'fetch-blob':
-                  fetch('/src/main.jsx')
-                    .then(r => {
-                      if (!r.ok) throw new Error('Fetch failed');
-                      return r.text();
-                    })
-                    .then(code => {
-                      const blob = new Blob([code], { type: 'text/javascript' });
-                      const url = URL.createObjectURL(blob);
-                      return import(url).then(module => {
-                        URL.revokeObjectURL(url);
-                        resolve(module);
-                      });
-                    })
-                    .catch(reject);
-                  break;
-
-                case 'proxy':
-                  // Try loading from a different path
-                  fetch('/assets/index.js')
-                    .then(r => r.text())
-                    .then(code => {
-                      const blob = new Blob([code], { type: 'text/javascript' });
-                      const url = URL.createObjectURL(blob);
-                      return import(url).then(module => {
-                        URL.revokeObjectURL(url);
-                        resolve(module);
-                      });
-                    })
-                    .catch(reject);
-                  break;
-              }
-            });
-          };
-
-          // Try methods in order
-          return tryLoad('direct')
-            .catch(err => {
-              if (err.message === 'MIME_TYPE') {
-                console.log('Direct load failed due to MIME type, trying fetch-blob...');
-                return tryLoad('fetch-blob');
-              }
-              throw err;
-            })
-            .catch(err => {
-              console.log('Fetch-blob failed, trying proxy method...', err.message);
-              return tryLoad('proxy');
-            })
-            .catch(err => {
-              console.error('All loading methods failed:', err);
-              // Show error message to user
-              document.getElementById('root').innerHTML =
-                '<div style="padding: 20px; text-align: center; color: red;">' +
-                '<h2>Loading Error</h2>' +
-                '<p>Unable to load application modules. This may be due to server configuration issues.</p>' +
-                '<p>Please try refreshing the page or contact support.</p>' +
-                '<button onclick="location.reload()">Refresh Page</button>' +
-                '</div>';
-            });
+        const root = document.getElementById('root');
+        const showError = (message) => {
+          root.innerHTML =
+            '<div style="padding: 20px; text-align: center; color: #dc3545; max-width: 600px; margin: 0 auto;">' +
+            '<h2>⚠️ Loading Error</h2>' +
+            '<p>' + message + '</p>' +
+            '<p><strong>Possible solutions:</strong></p>' +
+            '<ul style="text-align: left; display: inline-block;">' +
+            '<li>• Try refreshing the page (Ctrl+F5)</li>' +
+            '<li>• Clear browser cache</li>' +
+            '<li>• Check if the deployment was successful</li>' +
+            '<li>• Contact support if issue persists</li>' +
+            '</ul>' +
+            '<br><button onclick="location.reload()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">🔄 Refresh Page</button>' +
+            '</div>';
         };
 
-        // Start loading
-        loadApp();
+        const loadApp = async () => {
+          try {
+            // Method 1: Try direct import
+            console.log('🔄 Trying direct import...');
+            await import('/src/main.jsx');
+            console.log('✅ Direct import successful');
+          } catch (err) {
+            console.log('❌ Direct import failed:', err.message);
+
+            if (err.message.includes('MIME type') || err.message.includes('Failed to fetch')) {
+              try {
+                // Method 2: Try fetch with blob
+                console.log('🔄 Trying fetch-blob method...');
+                const response = await fetch('/src/main.jsx');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const code = await response.text();
+
+                if (code.trim().startsWith('<')) {
+                  throw new Error('Server returned HTML instead of JavaScript');
+                }
+
+                const blob = new Blob([code], { type: 'text/javascript' });
+                const url = URL.createObjectURL(blob);
+                await import(url);
+                URL.revokeObjectURL(url);
+                console.log('✅ Fetch-blob method successful');
+              } catch (err2) {
+                console.log('❌ Fetch-blob failed:', err2.message);
+
+                try {
+                  // Method 3: Try alternative paths
+                  console.log('🔄 Trying alternative paths...');
+
+                  // Try different possible paths
+                  const paths = [
+                    '/assets/index-*.js',
+                    '/assets/*.js',
+                    '/index.js'
+                  ];
+
+                  for (const path of paths) {
+                    try {
+                      const response = await fetch(path.replace('*', ''));
+                      if (response.ok) {
+                        const code = await response.text();
+                        if (!code.trim().startsWith('<')) {
+                          const blob = new Blob([code], { type: 'text/javascript' });
+                          const url = URL.createObjectURL(blob);
+                          await import(url);
+                          URL.revokeObjectURL(url);
+                          console.log('✅ Alternative path successful:', path);
+                          return;
+                        }
+                      }
+                    } catch (e) {
+                      continue;
+                    }
+                  }
+
+                  throw new Error('No alternative paths worked');
+                } catch (err3) {
+                  console.log('❌ Alternative paths failed:', err3.message);
+
+                  // Method 4: Show comprehensive error
+                  showError(
+                    'Unable to load application modules. ' +
+                    'This appears to be a server configuration issue where JavaScript files are being served with incorrect MIME types. ' +
+                    'The deployment platform may need to be configured to serve .js files as text/javascript instead of application/octet-stream.'
+                  );
+                }
+              }
+            } else {
+              showError('Application failed to load: ' + err.message);
+            }
+          }
+        };
+
+        // Start loading with a small delay to ensure DOM is ready
+        setTimeout(loadApp, 100);
       })();
     </script>
+    <style>
+      @keyframes loading {
+        0% { transform: translateX(-100%); }
+        50% { transform: translateX(100%); }
+        100% { transform: translateX(-100%); }
+      }
+    </style>
   </body>
 </html>
