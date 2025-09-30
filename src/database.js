@@ -217,7 +217,8 @@ export const db = {
     where(field) {
       return {
         equals: (value) => {
-          const queryResult = {
+          // Return object that matches Dexie API exactly
+          return {
             toArray: () => {
               if (field === 'identifier') {
                 return supabase
@@ -242,6 +243,7 @@ export const db = {
               return Promise.resolve([]);
             },
             count: () => {
+              // Return count synchronously for compatibility
               let result = 0;
               (async () => {
                 try {
@@ -255,59 +257,12 @@ export const db = {
                     }
                   }
                 } catch (err) {
-                  console.error('Error counting attendance in where().equals():', err);
+                  console.error('Error counting attendance:', err);
                 }
               })();
               return result;
-            },
-            and: (condition) => {
-              return {
-                toArray: () => {
-                  if (field === 'identifier') {
-                    return supabase
-                      .from(TABLES.ATTENDANCE)
-                      .select('*')
-                      .eq('identifier', value)
-                      .then(({ data, error }) => {
-                        if (error) throw error;
-                        return data;
-                      });
-                  }
-                  if (field === 'tanggal') {
-                    return supabase
-                      .from(TABLES.ATTENDANCE)
-                      .select('*')
-                      .eq('tanggal', value)
-                      .then(({ data, error }) => {
-                        if (error) throw error;
-                        return data;
-                      });
-                  }
-                  return Promise.resolve([]);
-                },
-                count: () => {
-                  let result = 0;
-                  (async () => {
-                    try {
-                      if (field === 'tanggal') {
-                        const { data, error } = await supabase
-                          .from(TABLES.ATTENDANCE)
-                          .select('*', { count: 'exact', head: true })
-                          .eq('tanggal', value);
-                        if (!error) {
-                          result = data?.count || 0;
-                        }
-                      }
-                    } catch (err) {
-                      console.error('Error counting attendance in where().equals().and():', err);
-                    }
-                  })();
-                  return result;
-                }
-              };
             }
           };
-          return queryResult;
         }
       };
     },
