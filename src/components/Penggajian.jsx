@@ -8,6 +8,7 @@ import {
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { db } from '../database';
 
 const Penggajian = ({ mode }) => {
