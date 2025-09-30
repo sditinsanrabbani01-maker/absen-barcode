@@ -11,10 +11,9 @@ export const db = {
     where(field) {
       return {
         equals: (value) => {
-          // Return synchronous object that matches Dexie API
-          return {
+          // Return object that matches Dexie API pattern
+          const queryResult = {
             toArray: () => {
-              // Execute query synchronously for compatibility
               if (field === 'status') {
                 return DatabaseService.getGuru(value === 'active');
               }
@@ -33,8 +32,33 @@ export const db = {
             },
             first: () => {
               return this.toArray().then(results => results[0] || null);
+            },
+            count: () => {
+              // Return count synchronously
+              let result = 0;
+              (async () => {
+                try {
+                  if (field === 'status') {
+                    const data = await DatabaseService.getGuru(value === 'active');
+                    result = data.length;
+                  } else if (field === 'nama') {
+                    const { data, error } = await supabase
+                      .from(TABLES.GURU)
+                      .select('*', { count: 'exact', head: true })
+                      .eq('nama', value)
+                      .eq('status', 'active');
+                    if (!error) {
+                      result = data?.count || 0;
+                    }
+                  }
+                } catch (err) {
+                  console.error('Error counting in where().equals():', err);
+                }
+              })();
+              return result;
             }
           };
+          return queryResult;
         }
       };
     },
@@ -83,7 +107,7 @@ export const db = {
     where(field) {
       return {
         equals: (value) => {
-          return {
+          const queryResult = {
             toArray: () => {
               if (field === 'status') {
                 return DatabaseService.getSiswa(value === 'active');
@@ -103,8 +127,32 @@ export const db = {
             },
             first: () => {
               return this.toArray().then(results => results[0] || null);
+            },
+            count: () => {
+              let result = 0;
+              (async () => {
+                try {
+                  if (field === 'status') {
+                    const data = await DatabaseService.getSiswa(value === 'active');
+                    result = data.length;
+                  } else if (field === 'nama') {
+                    const { data, error } = await supabase
+                      .from(TABLES.SISWA)
+                      .select('*', { count: 'exact', head: true })
+                      .eq('nama', value)
+                      .eq('status', 'active');
+                    if (!error) {
+                      result = data?.count || 0;
+                    }
+                  }
+                } catch (err) {
+                  console.error('Error counting siswa in where().equals():', err);
+                }
+              })();
+              return result;
             }
           };
+          return queryResult;
         }
       };
     },
@@ -194,6 +242,25 @@ export const db = {
                       });
                   }
                   return Promise.resolve([]);
+                },
+                count: () => {
+                  let result = 0;
+                  (async () => {
+                    try {
+                      if (field === 'tanggal') {
+                        const { data, error } = await supabase
+                          .from(TABLES.ATTENDANCE)
+                          .select('*', { count: 'exact', head: true })
+                          .eq('tanggal', value);
+                        if (!error) {
+                          result = data?.count || 0;
+                        }
+                      }
+                    } catch (err) {
+                      console.error('Error counting attendance in where().equals().and():', err);
+                    }
+                  })();
+                  return result;
                 }
               };
             }
@@ -373,6 +440,45 @@ export const db = {
           }
         } catch (err) {
           console.error('Error counting attendance_settings:', err);
+        }
+      })();
+      return result;
+    }
+  },
+
+  // Penggajian operations
+  penggajian: {
+    async toArray() {
+      return await DatabaseService.getAll(TABLES.PENGAJIAN);
+    },
+
+    async add(data) {
+      return await DatabaseService.create(TABLES.PENGAJIAN, {
+        ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    async update(id, data) {
+      return await DatabaseService.update(TABLES.PENGAJIAN, id, {
+        ...data,
+        updated_at: new Date().toISOString()
+      });
+    },
+
+    count() {
+      let result = 0;
+      (async () => {
+        try {
+          const { count, error } = await supabase
+            .from(TABLES.PENGAJIAN)
+            .select('*', { count: 'exact', head: true });
+          if (!error) {
+            result = count || 0;
+          }
+        } catch (err) {
+          console.error('Error counting penggajian:', err);
         }
       })();
       return result;
