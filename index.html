@@ -5,9 +5,30 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>absen-barcode</title>
+    <!-- Preload main module to ensure correct MIME type -->
+    <link rel="modulepreload" href="/src/main.jsx" />
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module">
+      // Inline import to avoid MIME type issues
+      import('/src/main.jsx').catch(err => {
+        console.error('Failed to load main module:', err);
+        // Fallback for development
+        if (err.message.includes('MIME type')) {
+          console.log('MIME type error detected, trying alternative load...');
+          // Try loading with fetch first
+          fetch('/src/main.jsx')
+            .then(r => r.text())
+            .then(code => {
+              // Create a blob with correct MIME type
+              const blob = new Blob([code], { type: 'text/javascript' });
+              const url = URL.createObjectURL(blob);
+              import(url).then(() => URL.revokeObjectURL(url));
+            })
+            .catch(err => console.error('Fallback also failed:', err));
+        }
+      });
+    </script>
   </body>
 </html>
