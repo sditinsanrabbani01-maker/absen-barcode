@@ -54,13 +54,15 @@ export const db = {
       });
     },
 
-    async count() {
-      const { count, error } = await supabase
+    count() {
+      return supabase
         .from(TABLES.GURU)
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'active');
-      if (error) throw error;
-      return count;
+        .eq('status', 'active')
+        .then(({ count, error }) => {
+          if (error) throw error;
+          return count;
+        });
     }
   },
 
@@ -114,13 +116,15 @@ export const db = {
       });
     },
 
-    async count() {
-      const { count, error } = await supabase
+    count() {
+      return supabase
         .from(TABLES.SISWA)
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'active');
-      if (error) throw error;
-      return count;
+        .eq('status', 'active')
+        .then(({ count, error }) => {
+          if (error) throw error;
+          return count;
+        });
     }
   },
 
@@ -340,12 +344,14 @@ export const db = {
       };
     },
 
-    async count() {
-      const { count, error } = await supabase
+    count() {
+      return supabase
         .from(TABLES.ATTENDANCE_SETTINGS)
-        .select('*', { count: 'exact', head: true });
-      if (error) throw error;
-      return count;
+        .select('*', { count: 'exact', head: true })
+        .then(({ count, error }) => {
+          if (error) throw error;
+          return count;
+        });
     }
   },
 
