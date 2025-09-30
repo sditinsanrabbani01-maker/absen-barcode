@@ -55,14 +55,15 @@ export const db = {
     },
 
     count() {
-      return supabase
-        .from(TABLES.GURU)
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'active')
-        .then(({ count, error }) => {
-          if (error) throw error;
-          return count;
-        });
+      // Return a promise that resolves to the count
+      return Promise.resolve().then(async () => {
+        const { count, error } = await supabase
+          .from(TABLES.GURU)
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'active');
+        if (error) throw error;
+        return count || 0;
+      });
     }
   },
 
@@ -117,14 +118,14 @@ export const db = {
     },
 
     count() {
-      return supabase
-        .from(TABLES.SISWA)
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'active')
-        .then(({ count, error }) => {
-          if (error) throw error;
-          return count;
-        });
+      return Promise.resolve().then(async () => {
+        const { count, error } = await supabase
+          .from(TABLES.SISWA)
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'active');
+        if (error) throw error;
+        return count || 0;
+      });
     }
   },
 
@@ -345,13 +346,13 @@ export const db = {
     },
 
     count() {
-      return supabase
-        .from(TABLES.ATTENDANCE_SETTINGS)
-        .select('*', { count: 'exact', head: true })
-        .then(({ count, error }) => {
-          if (error) throw error;
-          return count;
-        });
+      return Promise.resolve().then(async () => {
+        const { count, error } = await supabase
+          .from(TABLES.ATTENDANCE_SETTINGS)
+          .select('*', { count: 'exact', head: true });
+        if (error) throw error;
+        return count || 0;
+      });
     }
   },
 
