@@ -347,15 +347,31 @@ export const db = {
 
   // School settings operations
   school_settings: {
-    async toCollection() {
+    toCollection() {
       return {
-        async first() {
-          const { data, error } = await supabase
+        first: () => {
+          return supabase
             .from(TABLES.SCHOOL_SETTINGS)
             .select('*')
-            .limit(1);
-          if (error) throw error;
-          return data[0] || null;
+            .limit(1)
+            .then(({ data, error }) => {
+              if (error) throw error;
+              return data[0] || null;
+            });
+        },
+        limit: (count) => {
+          return {
+            toArray: () => {
+              return supabase
+                .from(TABLES.SCHOOL_SETTINGS)
+                .select('*')
+                .limit(count)
+                .then(({ data, error }) => {
+                  if (error) throw error;
+                  return data;
+                });
+            }
+          };
         }
       };
     },
@@ -485,15 +501,31 @@ export const db = {
 
   // Reminder settings operations
   reminder_settings: {
-    async toCollection() {
+    toCollection() {
       return {
-        async first() {
-          const { data, error } = await supabase
+        first: () => {
+          return supabase
             .from(TABLES.REMINDER_SETTINGS)
             .select('*')
-            .limit(1);
-          if (error) throw error;
-          return data[0] || null;
+            .limit(1)
+            .then(({ data, error }) => {
+              if (error) throw error;
+              return data[0] || null;
+            });
+        },
+        limit: (count) => {
+          return {
+            toArray: () => {
+              return supabase
+                .from(TABLES.REMINDER_SETTINGS)
+                .select('*')
+                .limit(count)
+                .then(({ data, error }) => {
+                  if (error) throw error;
+                  return data;
+                });
+            }
+          };
         }
       };
     },
