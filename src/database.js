@@ -218,6 +218,48 @@ export const db = {
       return {
         equals: (value) => {
           const queryResult = {
+            toArray: () => {
+              if (field === 'identifier') {
+                return supabase
+                  .from(TABLES.ATTENDANCE)
+                  .select('*')
+                  .eq('identifier', value)
+                  .then(({ data, error }) => {
+                    if (error) throw error;
+                    return data;
+                  });
+              }
+              if (field === 'tanggal') {
+                return supabase
+                  .from(TABLES.ATTENDANCE)
+                  .select('*')
+                  .eq('tanggal', value)
+                  .then(({ data, error }) => {
+                    if (error) throw error;
+                    return data;
+                  });
+              }
+              return Promise.resolve([]);
+            },
+            count: () => {
+              let result = 0;
+              (async () => {
+                try {
+                  if (field === 'tanggal') {
+                    const { data, error } = await supabase
+                      .from(TABLES.ATTENDANCE)
+                      .select('*', { count: 'exact', head: true })
+                      .eq('tanggal', value);
+                    if (!error) {
+                      result = data?.count || 0;
+                    }
+                  }
+                } catch (err) {
+                  console.error('Error counting attendance in where().equals():', err);
+                }
+              })();
+              return result;
+            },
             and: (condition) => {
               return {
                 toArray: () => {
