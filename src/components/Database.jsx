@@ -189,23 +189,31 @@ const Database = ({ mode }) => {
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        // Filter out empty rows and headers
+        // Filter out empty rows and headers - more permissive
         const filteredData = jsonData.filter((item, index) => {
           // Skip header row (index 0)
           if (index === 0) return false;
 
-          // Skip if no name
+          // Skip if no name or name is just whitespace/numbers
           if (!item.nama || !item.nama.trim()) return false;
+          if (!isNaN(item.nama.trim())) return false; // Skip if name is just a number
 
           // Skip obvious header rows
           const name = item.nama.trim().toLowerCase();
-          if (name.includes('nama') || name.includes('contoh') || name.includes('template')) {
+          if (name.includes('nama') || name.includes('contoh') || name.includes('template') ||
+              name.includes('data siswa') || name.includes('data guru') ||
+              name === 'nama' || name === 'contoh' || name === 'template') {
             return false;
           }
 
-          // Accept data even if some fields are missing
+          // Accept data even if some fields are missing or empty
           return true;
         });
+
+        console.log('📊 Import Debug Info:');
+        console.log('Total rows in Excel:', jsonData.length);
+        console.log('Filtered data count:', filteredData.length);
+        console.log('Sample filtered data:', filteredData.slice(0, 3));
 
         const guruDataImport = filteredData.filter(item => item.sebagai === 'Guru');
         const siswaDataImport = filteredData.filter(item => item.sebagai === 'Siswa' || !item.sebagai);
@@ -235,6 +243,8 @@ const Database = ({ mode }) => {
           return identifier;
         };
 
+        console.log('👨‍🏫 Processing guru data:', guruDataImport.length, 'items');
+
         if (guruDataImport.length > 0) {
           // Process guru data with update logic
           const processGuruData = async () => {
@@ -243,8 +253,11 @@ const Database = ({ mode }) => {
 
             for (const item of guruDataImport) {
               try {
+                console.log('Processing guru item:', item);
+
                 // Validate required fields
                 if (!item.nama || !item.nama.trim()) {
+                  console.log('Skipping guru item - no name:', item);
                   continue;
                 }
 
@@ -254,10 +267,12 @@ const Database = ({ mode }) => {
 
                 if (!identifier) {
                   identifier = await generateIdentifier(role);
+                  console.log('Generated identifier for guru:', identifier);
                 }
 
                 // Check if guru with same name already exists
                 const existingByName = await db.guru.where('nama').equals(item.nama.trim()).first();
+                console.log('Existing guru by name:', existingByName);
 
                 if (existingByName) {
                   // Update existing record
@@ -269,10 +284,12 @@ const Database = ({ mode }) => {
                     wa: item.wa || existingByName.wa,
                     status: 'active'
                   });
+                  console.log('Updated guru:', item.nama);
                   updated++;
                 } else {
                   // Check if NIY already exists
                   const existingByNiy = await db.guru.where('niy').equals(identifier).first();
+                  console.log('Existing guru by NIY:', existingByNiy);
 
                   if (!existingByNiy) {
                     // Add new record
@@ -286,7 +303,10 @@ const Database = ({ mode }) => {
                       status: 'active'
                     };
                     await db.guru.add(newGuru);
+                    console.log('Added new guru:', item.nama);
                     added++;
+                  } else {
+                    console.log('Skipping guru - NIY already exists:', identifier);
                   }
                 }
               } catch (error) {
@@ -294,11 +314,13 @@ const Database = ({ mode }) => {
               }
             }
 
+            console.log('Guru processing complete:', { added, updated });
             guruImported = added;
             return { updated, added };
           };
 
           processGuruData().then((result) => {
+            console.log('Guru import result:', result);
             guruAdded = result.added;
             guruUpdated = result.updated;
             loadData();
@@ -306,6 +328,8 @@ const Database = ({ mode }) => {
             console.error('Error in processGuruData:', error);
           });
         }
+
+        console.log('👨‍🎓 Processing siswa data:', siswaDataImport.length, 'items');
 
         if (siswaDataImport.length > 0) {
           // Process siswa data with update logic
@@ -315,8 +339,11 @@ const Database = ({ mode }) => {
 
             for (const item of siswaDataImport) {
               try {
+                console.log('Processing siswa item:', item);
+
                 // Validate required fields
                 if (!item.nama || !item.nama.trim()) {
+                  console.log('Skipping siswa item - no name:', item);
                   continue;
                 }
 
@@ -326,10 +353,12 @@ const Database = ({ mode }) => {
 
                 if (!identifier) {
                   identifier = await generateIdentifier(role);
+                  console.log('Generated identifier for siswa:', identifier);
                 }
 
                 // Check if siswa with same name already exists
                 const existingByName = await db.siswa.where('nama').equals(item.nama.trim()).first();
+                console.log('Existing siswa by name:', existingByName);
 
                 if (existingByName) {
                   // Update existing record
@@ -341,10 +370,12 @@ const Database = ({ mode }) => {
                     wa: item.wa || existingByName.wa,
                     status: 'active'
                   });
+                  console.log('Updated siswa:', item.nama);
                   updated++;
                 } else {
                   // Check if NISN already exists
                   const existingByNisn = await db.siswa.where('nisn').equals(identifier).first();
+                  console.log('Existing siswa by NISN:', existingByNisn);
 
                   if (!existingByNisn) {
                     // Add new record
@@ -358,7 +389,10 @@ const Database = ({ mode }) => {
                       status: 'active'
                     };
                     await db.siswa.add(newSiswa);
+                    console.log('Added new siswa:', item.nama);
                     added++;
+                  } else {
+                    console.log('Skipping siswa - NISN already exists:', identifier);
                   }
                 }
               } catch (error) {
@@ -366,11 +400,13 @@ const Database = ({ mode }) => {
               }
             }
 
+            console.log('Siswa processing complete:', { added, updated });
             siswaImported = added;
             return { updated, added };
           };
 
           processSiswaData().then((result) => {
+            console.log('Siswa import result:', result);
             siswaAdded = result.added;
             siswaUpdated = result.updated;
             loadData();
