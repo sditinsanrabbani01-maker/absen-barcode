@@ -382,17 +382,26 @@ export class DatabaseService {
   }
 
   static async create(tableName, data) {
+    console.log(`📝 Creating record in ${tableName}:`, data)
+
     const { data: result, error } = await supabase
       .from(tableName)
       .insert(data)
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error(`❌ Error creating record in ${tableName}:`, error)
+      throw error
+    }
+
+    console.log(`✅ Record created in ${tableName}:`, result)
     return result
   }
 
   static async update(tableName, id, data) {
+    console.log(`📝 Updating record in ${tableName} (ID: ${id}):`, data)
+
     const { data: result, error } = await supabase
       .from(tableName)
       .update(data)
@@ -400,7 +409,12 @@ export class DatabaseService {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error(`❌ Error updating record in ${tableName}:`, error)
+      throw error
+    }
+
+    console.log(`✅ Record updated in ${tableName}:`, result)
     return result
   }
 
@@ -414,17 +428,25 @@ export class DatabaseService {
   }
 
   static async bulkCreate(tableName, dataArray) {
+    console.log(`📤 Inserting ${dataArray.length} records to ${tableName}...`)
+
     const { data, error } = await supabase
       .from(tableName)
       .insert(dataArray)
       .select()
 
-    if (error) throw error
+    if (error) {
+      console.error(`❌ Error inserting to ${tableName}:`, error)
+      throw error
+    }
+
+    console.log(`✅ Successfully inserted ${data?.length || 0} records to ${tableName}`)
     return data
   }
 
   // Specific table operations
   static async getGuru(activeOnly = true) {
+    console.log('🔍 Getting guru data from Supabase...')
     let query = supabase.from(TABLES.GURU).select('*')
 
     if (activeOnly) {
@@ -432,7 +454,11 @@ export class DatabaseService {
     }
 
     const { data, error } = await query.order('nama', { ascending: true })
-    if (error) throw error
+    if (error) {
+      console.error('❌ Error getting guru from Supabase:', error)
+      throw error
+    }
+    console.log('✅ Got guru data:', data?.length || 0, 'records')
     return data
   }
 
