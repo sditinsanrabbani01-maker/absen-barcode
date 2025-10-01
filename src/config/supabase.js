@@ -402,20 +402,44 @@ export class DatabaseService {
   static async update(tableName, id, data) {
     console.log(`📝 Updating record in ${tableName} (ID: ${id}):`, data)
 
-    const { data: result, error } = await supabase
-      .from(tableName)
-      .update(data)
-      .eq('id', id)
-      .select()
-      .single()
+    try {
+      const { data: result, error } = await supabase
+        .from(tableName)
+        .update(data)
+        .eq('id', id)
+        .select()
+        .single()
 
-    if (error) {
-      console.error(`❌ Error updating record in ${tableName}:`, error)
-      throw error
+      if (error) {
+        console.error(`❌ Error updating record in ${tableName}:`, error)
+        console.log('🔄 Falling back to local storage...')
+        // Fallback to local storage if Supabase fails
+        const { db } = await import('../database.js');
+        if (tableName === TABLES.GURU) {
+          await db.guru.update(id, data);
+          return { id, ...data };
+        } else if (tableName === TABLES.SISWA) {
+          await db.siswa.update(id, data);
+          return { id, ...data };
+        }
+        throw error;
+      }
+
+      console.log(`✅ Record updated in ${tableName}:`, result)
+      return result
+    } catch (err) {
+      console.error(`❌ Supabase failed, using local storage:`, err)
+      // Fallback to local storage
+      const { db } = await import('../database.js');
+      if (tableName === TABLES.GURU) {
+        await db.guru.update(id, data);
+        return { id, ...data };
+      } else if (tableName === TABLES.SISWA) {
+        await db.siswa.update(id, data);
+        return { id, ...data };
+      }
+      throw err;
     }
-
-    console.log(`✅ Record updated in ${tableName}:`, result)
-    return result
   }
 
   static async delete(tableName, id) {
@@ -430,36 +454,70 @@ export class DatabaseService {
   static async bulkCreate(tableName, dataArray) {
     console.log(`📤 Inserting ${dataArray.length} records to ${tableName}...`)
 
-    const { data, error } = await supabase
-      .from(tableName)
-      .insert(dataArray)
-      .select()
+    try {
+      const { data, error } = await supabase
+        .from(tableName)
+        .insert(dataArray)
+        .select()
 
-    if (error) {
-      console.error(`❌ Error inserting to ${tableName}:`, error)
-      throw error
+      if (error) {
+        console.error(`❌ Error inserting to ${tableName}:`, error)
+        console.log('🔄 Falling back to local storage...')
+        // Fallback to local storage if Supabase fails
+        const { db } = await import('../database.js');
+        if (tableName === TABLES.GURU) {
+          await db.guru.bulkAdd(dataArray);
+          return dataArray;
+        } else if (tableName === TABLES.SISWA) {
+          await db.siswa.bulkAdd(dataArray);
+          return dataArray;
+        }
+        throw error;
+      }
+
+      console.log(`✅ Successfully inserted ${data?.length || 0} records to ${tableName}`)
+      return data
+    } catch (err) {
+      console.error(`❌ Supabase failed, using local storage:`, err)
+      // Fallback to local storage
+      const { db } = await import('../database.js');
+      if (tableName === TABLES.GURU) {
+        await db.guru.bulkAdd(dataArray);
+        return dataArray;
+      } else if (tableName === TABLES.SISWA) {
+        await db.siswa.bulkAdd(dataArray);
+        return dataArray;
+      }
+      throw err;
     }
-
-    console.log(`✅ Successfully inserted ${data?.length || 0} records to ${tableName}`)
-    return data
   }
 
   // Specific table operations
   static async getGuru(activeOnly = true) {
     console.log('🔍 Getting guru data from Supabase...')
-    let query = supabase.from(TABLES.GURU).select('*')
+    try {
+      let query = supabase.from(TABLES.GURU).select('*')
 
-    if (activeOnly) {
-      query = query.eq('status', 'active')
-    }
+      if (activeOnly) {
+        query = query.eq('status', 'active')
+      }
 
-    const { data, error } = await query.order('nama', { ascending: true })
-    if (error) {
-      console.error('❌ Error getting guru from Supabase:', error)
-      throw error
+      const { data, error } = await query.order('nama', { ascending: true })
+      if (error) {
+        console.error('❌ Error getting guru from Supabase:', error)
+        // Fallback to local data if Supabase fails
+        console.log('🔄 Falling back to local data...')
+        const { db } = await import('../database.js');
+        return await db.guru.toArray();
+      }
+      console.log('✅ Got guru data:', data?.length || 0, 'records')
+      return data || []
+    } catch (err) {
+      console.error('❌ Supabase connection failed, using local data:', err)
+      // Fallback to local data
+      const { db } = await import('../database.js');
+      return await db.guru.toArray();
     }
-    console.log('✅ Got guru data:', data?.length || 0, 'records')
-    return data
   }
 
   static async getSiswa(activeOnly = true) {
