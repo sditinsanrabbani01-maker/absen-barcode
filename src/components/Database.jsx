@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Checkbox, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Checkbox, FormControl, InputLabel, Select, MenuItem, CircularProgress, Alert, LinearProgress, TablePagination, InputAdornment } from '@mui/material';
+import { Search as SearchIcon } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
-import { CloudUpload, CloudDownload } from '@mui/icons-material';
+import { CloudUpload, CloudDownload, GetApp, Publish } from '@mui/icons-material';
 import { db } from '../database';
-import { DataMigrationService } from '../config/supabase';
+import { DatabaseService, supabase } from '../config/supabase';
 
 const Database = ({ mode }) => {
+  // State management
   const [guruData, setGuruData] = useState([]);
   const [siswaData, setSiswaData] = useState([]);
   const [open, setOpen] = useState(false);
@@ -20,54 +22,354 @@ const Database = ({ mode }) => {
   const [migrationResults, setMigrationResults] = useState(null);
   const [isMigrating, setIsMigrating] = useState(false);
 
+  // Loading states
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+
+  // Pagination states
+  const [guruPage, setGuruPage] = useState(0);
+  const [guruRowsPerPage, setGuruRowsPerPage] = useState(20);
+  const [siswaPage, setSiswaPage] = useState(0);
+  const [siswaRowsPerPage, setSiswaRowsPerPage] = useState(20);
+
+  // Search state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredGuruData, setFilteredGuruData] = useState([]);
+  const [filteredSiswaData, setFilteredSiswaData] = useState([]);
+
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    db.guru.where('status').equals('active').toArray().then(guru => setGuruData(guru));
-    db.siswa.where('status').equals('active').toArray().then(siswa => setSiswaData(siswa));
-  };
+  // Search filtering effect
+  useEffect(() => {
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
 
-  const handleMigrateToSupabase = async () => {
-    setIsMigrating(true);
+      const filteredGuru = guruData.filter(item =>
+        item.nama?.toLowerCase().includes(searchLower) ||
+        item.niy?.toLowerCase().includes(searchLower) ||
+        item.jabatan?.toLowerCase().includes(searchLower) ||
+        item.email?.toLowerCase().includes(searchLower) ||
+        item.wa?.toLowerCase().includes(searchLower)
+      );
+
+      const filteredSiswa = siswaData.filter(item =>
+        item.nama?.toLowerCase().includes(searchLower) ||
+        item.nisn?.toLowerCase().includes(searchLower) ||
+        item.jabatan?.toLowerCase().includes(searchLower) ||
+        item.email?.toLowerCase().includes(searchLower) ||
+        item.wa?.toLowerCase().includes(searchLower)
+      );
+
+      setFilteredGuruData(filteredGuru);
+      setFilteredSiswaData(filteredSiswa);
+    } else {
+      setFilteredGuruData(guruData);
+      setFilteredSiswaData(siswaData);
+    }
+  }, [searchTerm, guruData, siswaData]);
+
+  // Load data from IndexedDB
+  const loadData = async () => {
     try {
-      const results = await DataMigrationService.syncLocalToSupabase();
-      setMigrationResults(results);
-      alert('✅ Migrasi berhasil! Data lokal sudah disinkronisasi ke Supabase.');
+      const [guru, siswa] = await Promise.all([
+        db.guru.where('status').equals('active').toArray(),
+        db.siswa.where('status').equals('active').toArray()
+      ]);
+      setGuruData(guru);
+      setSiswaData(siswa);
+      setFilteredGuruData(guru);
+      setFilteredSiswaData(siswa);
     } catch (error) {
-      console.error('Migration error:', error);
-      alert('❌ Migrasi gagal: ' + error.message);
-    } finally {
-      setIsMigrating(false);
-      setMigrationDialog(false);
+      console.error('Error loading data:', error);
     }
   };
 
-  const handleDownloadTemplate = () => {
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["nama", "identifier", "jabatan", "sebagai", "email", "wa"],
-      ["", "", "", "", "", ""],
-      ["Contoh Guru: Ahmad Santoso", "G001", "Guru Matematika", "Guru", "ahmad@school.com", "08123456789"],
-      ["Contoh Siswa: Rina Sari", "S001", "Kelas 10A", "Siswa", "rina@school.com", "08111111111"]
-    ]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Template Data");
-    XLSX.writeFile(wb, "template_data.xlsx");
+  // Generate next available identifier (max existing + 1)
+  const generateNextIdentifier = async (role) => {
+    const prefix = role === 'Guru' ? 'G' : 'S';
+    const table = role === 'Guru' ? db.guru : db.siswa;
+    const idField = role === 'Guru' ? 'niy' : 'nisn';
+
+    try {
+      // Get all existing identifiers for this role
+      const existingRecords = await table.where('sebagai').equals(role).toArray();
+      const existingIds = existingRecords
+        .map(record => record[idField])
+        .filter(id => id && id.startsWith(prefix))
+        .map(id => {
+          const numPart = id.substring(1); // Remove prefix
+          const num = parseInt(numPart, 10);
+          return isNaN(num) ? 0 : num;
+        });
+
+      // Find max number and add 1
+      const maxNum = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+      const nextNum = maxNum + 1;
+
+      return `${prefix}${nextNum.toString().padStart(3, '0')}`;
+    } catch (error) {
+      console.error('Error generating identifier:', error);
+      // Fallback to simple counter
+      return `${prefix}001`;
+    }
   };
 
-  const handleExportExcel = () => {
-    const allData = [
-      ...guruData.map(item => ({ ...item, identifier: item.niy })),
-      ...siswaData.map(item => ({ ...item, identifier: item.nisn }))
-    ];
-    const ws = XLSX.utils.json_to_sheet(allData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Data Lengkap");
-    XLSX.writeFile(wb, "data_lengkap.xlsx");
+  // Batch insert/update operations for better performance
+  const batchProcessRecords = async (records, table, idField, role) => {
+    const results = { added: 0, updated: 0, skipped: 0 };
+
+    // Process in batches of 10 to avoid blocking UI
+    const batchSize = 10;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const batch = records.slice(i, i + batchSize);
+
+      const batchPromises = batch.map(async (item) => {
+        try {
+          // Validate required fields
+          if (!item.nama || !item.nama.trim()) {
+            console.log(`Skipping ${role.toLowerCase()} item - no name:`, item);
+            results.skipped++;
+            return;
+          }
+
+          let identifier = item.identifier ? item.identifier.toString().trim() : '';
+
+          // Generate identifier if not provided
+          if (!identifier) {
+            identifier = await generateNextIdentifier(role);
+            console.log(`Generated identifier for ${role.toLowerCase()}:`, identifier);
+          }
+
+          // Check for existing record by identifier first
+          let existingRecord = null;
+          if (identifier && identifier.length > 3) {
+            existingRecord = await table.where(idField).equals(identifier).first();
+          }
+
+          // If not found by identifier, check by name (only if exactly one match)
+          if (!existingRecord) {
+            const existingByName = await table.where('nama').equals(item.nama.trim()).toArray();
+            if (existingByName.length === 1) {
+              existingRecord = existingByName[0];
+            }
+          }
+
+          if (existingRecord) {
+            // Update existing record
+            await table.update(existingRecord.id, {
+              [idField]: identifier,
+              jabatan: item.jabatan || existingRecord.jabatan,
+              sebagai: role,
+              email: item.email || existingRecord.email,
+              wa: item.wa || existingRecord.wa,
+              status: 'active'
+            });
+            console.log(`Updated ${role.toLowerCase()}:`, item.nama, `with ${idField}:`, identifier);
+            results.updated++;
+          } else {
+            // Check for duplicate identifier
+            const existingById = await table.where(idField).equals(identifier).first();
+            if (!existingById) {
+              // Add new record
+              const newRecord = {
+                nama: item.nama.trim(),
+                [idField]: identifier,
+                jabatan: item.jabatan || '',
+                sebagai: role,
+                email: item.email || '',
+                wa: item.wa || '',
+                status: 'active'
+              };
+              await table.add(newRecord);
+              console.log(`Added new ${role.toLowerCase()}:`, item.nama, `with ${idField}:`, identifier);
+              results.added++;
+            } else {
+              console.log(`Skipping ${role.toLowerCase()} - ${idField} already exists:`, identifier);
+              results.skipped++;
+            }
+          }
+        } catch (error) {
+          console.error(`Error processing ${role.toLowerCase()} item:`, item, error);
+          results.skipped++;
+        }
+      });
+
+      await Promise.all(batchPromises);
+
+      // Update progress
+      setImportProgress(Math.min(100, ((i + batch.length) / records.length) * 100));
+    }
+
+    return results;
   };
 
+  // Handle Excel import with proper async/await
+  const handleImportExcel = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportProgress(0);
+
+    try {
+      const reader = new FileReader();
+      const fileData = await new Promise((resolve, reject) => {
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+      });
+
+      const workbook = XLSX.read(fileData, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      // Filter and validate data
+      const filteredData = jsonData.filter((item, index) => {
+        if (index === 0) return false; // Skip header
+
+        if (!item.nama || !item.nama.trim()) return false;
+        if (!isNaN(item.nama.trim())) return false; // Skip numeric names
+
+        const name = item.nama.trim().toLowerCase();
+        if (name.includes('nama') || name.includes('contoh') || name.includes('template')) return false;
+
+        return true;
+      });
+
+      console.log('📊 Import Debug Info:');
+      console.log('Total rows in Excel:', jsonData.length);
+      console.log('Filtered data count:', filteredData.length);
+
+      // Separate guru and siswa data
+      const guruDataImport = filteredData.filter(item => item.sebagai === 'Guru');
+      const siswaDataImport = filteredData.filter(item => item.sebagai === 'Siswa' || !item.sebagai);
+
+      console.log(`👨‍🏫 Processing ${guruDataImport.length} guru records...`);
+      console.log(`👨‍🎓 Processing ${siswaDataImport.length} siswa records...`);
+
+      // Process both tables concurrently for better performance
+      const [guruResults, siswaResults] = await Promise.all([
+        batchProcessRecords(guruDataImport, db.guru, 'niy', 'Guru'),
+        batchProcessRecords(siswaDataImport, db.siswa, 'nisn', 'Siswa')
+      ]);
+
+      // Reload data to refresh UI
+      await loadData();
+
+      // Show results
+      const message = generateImportMessage(guruResults, siswaResults);
+      alert(message);
+
+    } catch (error) {
+      console.error('Import error:', error);
+      alert('❌ Gagal mengimpor data: ' + error.message);
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
+      event.target.value = ''; // Reset file input
+    }
+  };
+
+  // Generate import result message
+  const generateImportMessage = (guruResults, siswaResults) => {
+    let message = '✅ Import selesai!\n\n';
+
+    if (guruResults.added > 0) message += `Guru baru: ${guruResults.added}\n`;
+    if (guruResults.updated > 0) message += `Guru diupdate: ${guruResults.updated}\n`;
+    if (siswaResults.added > 0) message += `Siswa baru: ${siswaResults.added}\n`;
+    if (siswaResults.updated > 0) message += `Siswa diupdate: ${siswaResults.updated}\n`;
+
+    const totalProcessed = guruResults.added + guruResults.updated + siswaResults.added + siswaResults.updated;
+    if (totalProcessed === 0) {
+      message += '⚠️ Tidak ada data yang diimport.\n';
+    }
+
+    if (guruResults.skipped > 0 || siswaResults.skipped > 0) {
+      message += `\n⚠️ Data dilewati: ${guruResults.skipped + siswaResults.skipped} record\n`;
+    }
+
+    message += '\n📝 Catatan: Data dengan identifier sama akan diupdate, duplikasi dicegah otomatis.';
+    return message;
+  };
+
+  // Handle JSON import/export
+  const handleImportAllData = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      const reader = new FileReader();
+      const fileContent = await new Promise((resolve, reject) => {
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+
+      const importedData = JSON.parse(fileContent);
+
+      if (!importedData.version) {
+        alert('❌ File backup tidak valid!');
+        return;
+      }
+
+      const confirmImport = confirm(
+        `⚠️ Import Data Lengkap\n\n` +
+        `Guru: ${importedData.guru?.length || 0}\n` +
+        `Siswa: ${importedData.siswa?.length || 0}\n` +
+        `Absensi: ${importedData.attendance?.length || 0}\n` +
+        `Penggajian: ${importedData.penggajian?.length || 0}\n\n` +
+        `❗ Data yang ada akan DITIMPA!\n\nLanjutkan?`
+      );
+
+      if (!confirmImport) return;
+
+      // Clear existing data
+      await Promise.all([
+        db.guru.clear(),
+        db.siswa.clear(),
+        db.attendance.clear(),
+        db.penggajian.clear(),
+        db.guru_inactive.clear(),
+        db.siswa_inactive.clear(),
+        db.attendance_settings?.clear()
+      ]);
+
+      // Batch import new data
+      const importPromises = [];
+      if (importedData.guru?.length) importPromises.push(db.guru.bulkAdd(importedData.guru));
+      if (importedData.siswa?.length) importPromises.push(db.siswa.bulkAdd(importedData.siswa));
+      if (importedData.attendance?.length) importPromises.push(db.attendance.bulkAdd(importedData.attendance));
+      if (importedData.penggajian?.length) importPromises.push(db.penggajian.bulkAdd(importedData.penggajian));
+      if (importedData.guru_inactive?.length) importPromises.push(db.guru_inactive.bulkAdd(importedData.guru_inactive));
+      if (importedData.siswa_inactive?.length) importPromises.push(db.siswa_inactive.bulkAdd(importedData.siswa_inactive));
+      if (importedData.attendance_settings?.length && db.attendance_settings) {
+        importPromises.push(db.attendance_settings.bulkAdd(importedData.attendance_settings));
+      }
+
+      await Promise.all(importPromises);
+      await loadData();
+
+      alert(`✅ Data berhasil diimpor!\n\n` +
+            `Guru: ${importedData.guru?.length || 0}\n` +
+            `Siswa: ${importedData.siswa?.length || 0}\n` +
+            `Absensi: ${importedData.attendance?.length || 0}\n` +
+            `Penggajian: ${importedData.penggajian?.length || 0}`);
+
+    } catch (error) {
+      console.error('Import error:', error);
+      alert('❌ Gagal mengimpor data: ' + error.message);
+    }
+
+    event.target.value = '';
+  };
+
+  // Handle export with loading state
   const handleExportAllData = async () => {
+    setIsExporting(true);
     try {
       const [guru, siswa, attendance, penggajian, guruInactive, siswaInactive, settings] = await Promise.all([
         db.guru.toArray(),
@@ -103,339 +405,69 @@ const Database = ({ mode }) => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      alert('Data berhasil diekspor! File backup tersimpan.');
+      alert('✅ Data berhasil diekspor! File backup tersimpan.');
     } catch (error) {
       console.error('Export error:', error);
-      alert('Gagal mengekspor data: ' + error.message);
+      alert('❌ Gagal mengekspor data: ' + error.message);
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const handleImportAllData = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  // Handle Supabase migration with confirmation
+  const handleMigrateToSupabase = async () => {
+    const confirmMigration = confirm(
+      `🚀 Migrasi ke Supabase\n\n` +
+      `Ini akan mengupload semua data lokal ke database cloud Supabase.\n\n` +
+      `• Data yang sudah ada di Supabase akan diupdate\n` +
+      `• Data baru akan ditambahkan\n` +
+      `• Proses ini tidak akan menghapus data lokal\n\n` +
+      `Lanjutkan migrasi?`
+    );
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const importedData = JSON.parse(e.target.result);
+    if (!confirmMigration) return;
 
-        if (!importedData.version) {
-          alert('File backup tidak valid!');
-          return;
-        }
+    setIsMigrating(true);
+    try {
+      console.log('🔄 Starting Supabase migration...');
+      const results = await DatabaseService.syncLocalToSupabase();
 
-        const confirmImport = confirm(
-          `Apakah Anda yakin ingin mengimpor data?\n\n` +
-          `Guru: ${importedData.guru?.length || 0}\n` +
-          `Siswa: ${importedData.siswa?.length || 0}\n` +
-          `Absensi: ${importedData.attendance?.length || 0}\n` +
-          `Penggajian: ${importedData.penggajian?.length || 0}\n\n` +
-          `Data yang ada akan DITIMPA!`
-        );
+      console.log('✅ Migration completed:', results);
+      setMigrationResults(results);
 
-        if (!confirmImport) return;
+      // Verify data in Supabase
+      console.log('🔍 Verifying data in Supabase...');
+      const { data: guruData, error: guruError } = await supabase.from('guru').select('*').limit(5);
+      const { data: siswaData, error: siswaError } = await supabase.from('siswa').select('*').limit(5);
 
-        // Clear existing data
-        await Promise.all([
-          db.guru.clear(),
-          db.siswa.clear(),
-          db.attendance.clear(),
-          db.penggajian.clear(),
-          db.guru_inactive.clear(),
-          db.siswa_inactive.clear(),
-          db.attendance_settings?.clear()
-        ]);
-
-        // Import new data
-        const importPromises = [];
-        if (importedData.guru?.length) importPromises.push(db.guru.bulkAdd(importedData.guru));
-        if (importedData.siswa?.length) importPromises.push(db.siswa.bulkAdd(importedData.siswa));
-        if (importedData.attendance?.length) importPromises.push(db.attendance.bulkAdd(importedData.attendance));
-        if (importedData.penggajian?.length) importPromises.push(db.penggajian.bulkAdd(importedData.penggajian));
-        if (importedData.guru_inactive?.length) importPromises.push(db.guru_inactive.bulkAdd(importedData.guru_inactive));
-        if (importedData.siswa_inactive?.length) importPromises.push(db.siswa_inactive.bulkAdd(importedData.siswa_inactive));
-        if (importedData.attendance_settings?.length && db.attendance_settings) {
-          importPromises.push(db.attendance_settings.bulkAdd(importedData.attendance_settings));
-        }
-
-        await Promise.all(importPromises);
-
-        // Reload data
-        loadData();
-
-        alert(`Data berhasil diimpor!\n\nImport Summary:\n` +
-              `Guru: ${importedData.guru?.length || 0}\n` +
-              `Siswa: ${importedData.siswa?.length || 0}\n` +
-              `Absensi: ${importedData.attendance?.length || 0}\n` +
-              `Penggajian: ${importedData.penggajian?.length || 0}`);
-
-      } catch (error) {
-        console.error('Import error:', error);
-        alert('Gagal mengimpor data: ' + error.message);
-      }
-    };
-
-    reader.readAsText(file);
-  };
-
-  const handleImportExcel = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-        // Filter out empty rows and headers - more permissive
-        const filteredData = jsonData.filter((item, index) => {
-          // Skip header row (index 0)
-          if (index === 0) return false;
-
-          // Skip if no name or name is just whitespace/numbers
-          if (!item.nama || !item.nama.trim()) return false;
-          if (!isNaN(item.nama.trim())) return false; // Skip if name is just a number
-
-          // Skip obvious header rows
-          const name = item.nama.trim().toLowerCase();
-          if (name.includes('nama') || name.includes('contoh') || name.includes('template') ||
-              name.includes('data siswa') || name.includes('data guru') ||
-              name === 'nama' || name === 'contoh' || name === 'template') {
-            return false;
-          }
-
-          // Accept data even if some fields are missing or empty
-          return true;
+      if (guruError || siswaError) {
+        console.error('❌ Verification failed:', { guruError, siswaError });
+        alert('⚠️ Migrasi berhasil, tetapi verifikasi gagal. Periksa koneksi Supabase.');
+      } else {
+        console.log('✅ Verification successful:', {
+          guruCount: guruData?.length || 0,
+          siswaCount: siswaData?.length || 0
         });
 
-        console.log('📊 Import Debug Info:');
-        console.log('Total rows in Excel:', jsonData.length);
-        console.log('Filtered data count:', filteredData.length);
-        console.log('Sample filtered data:', filteredData.slice(0, 3));
+        const successMessage = `✅ Migrasi Berhasil!\n\n` +
+          `📊 Hasil Migrasi:\n` +
+          `• Guru: ${results.guru?.synced || 0} synced, ${results.guru?.skipped || 0} skipped\n` +
+          `• Siswa: ${results.siswa?.synced || 0} synced, ${results.siswa?.skipped || 0} skipped\n` +
+          `• Attendance: ${results.attendance?.synced || 0} synced\n` +
+          `• Perizinan: ${results.perizinan?.synced || 0} synced\n\n` +
+          `🔍 Verifikasi: ${guruData?.length || 0} guru, ${siswaData?.length || 0} siswa ditemukan di Supabase`;
 
-        const guruDataImport = filteredData.filter(item => item.sebagai === 'Guru');
-        const siswaDataImport = filteredData.filter(item => item.sebagai === 'Siswa' || !item.sebagai);
-
-        let guruImported = 0;
-        let siswaImported = 0;
-        let guruAdded = 0;
-        let guruUpdated = 0;
-        let siswaAdded = 0;
-        let siswaUpdated = 0;
-
-        // Function to generate unique identifier
-        const generateIdentifier = async (role) => {
-          const prefix = role === 'Guru' ? 'G' : 'S';
-          let counter = 1;
-          let identifier;
-
-          do {
-            identifier = `${prefix}${counter.toString().padStart(3, '0')}`;
-            const table = role === 'Guru' ? db.guru : db.siswa;
-            const idField = role === 'Guru' ? 'niy' : 'nisn';
-            const existing = await table.where(idField).equals(identifier).first();
-            if (!existing) break;
-            counter++;
-          } while (true);
-
-          return identifier;
-        };
-
-        console.log('👨‍🏫 Processing guru data:', guruDataImport.length, 'items');
-
-        if (guruDataImport.length > 0) {
-          // Process guru data with update logic
-          const processGuruData = async () => {
-            let updated = 0;
-            let added = 0;
-
-            for (const item of guruDataImport) {
-              try {
-                console.log('Processing guru item:', item);
-
-                // Validate required fields
-                if (!item.nama || !item.nama.trim()) {
-                  console.log('Skipping guru item - no name:', item);
-                  continue;
-                }
-
-                // Determine role and generate identifier if needed
-                const role = item.sebagai === 'Guru' ? 'Guru' : 'Guru'; // Default to Guru for this section
-                let identifier = item.identifier ? item.identifier.toString().trim() : '';
-
-                if (!identifier) {
-                  identifier = await generateIdentifier(role);
-                  console.log('Generated identifier for guru:', identifier);
-                }
-
-                // Check if guru with same name already exists
-                const existingByName = await db.guru.where('nama').equals(item.nama.trim()).first();
-                console.log('Existing guru by name:', existingByName);
-
-                if (existingByName) {
-                  // Update existing record
-                  await db.guru.update(existingByName.id, {
-                    niy: identifier,
-                    jabatan: item.jabatan || existingByName.jabatan,
-                    sebagai: role,
-                    email: item.email || existingByName.email,
-                    wa: item.wa || existingByName.wa,
-                    status: 'active'
-                  });
-                  console.log('Updated guru:', item.nama);
-                  updated++;
-                } else {
-                  // Check if NIY already exists
-                  const existingByNiy = await db.guru.where('niy').equals(identifier).first();
-                  console.log('Existing guru by NIY:', existingByNiy);
-
-                  if (!existingByNiy) {
-                    // Add new record
-                    const newGuru = {
-                      nama: item.nama.trim(),
-                      niy: identifier,
-                      jabatan: item.jabatan || '',
-                      sebagai: role,
-                      email: item.email || '',
-                      wa: item.wa || '',
-                      status: 'active'
-                    };
-                    await db.guru.add(newGuru);
-                    console.log('Added new guru:', item.nama);
-                    added++;
-                  } else {
-                    console.log('Skipping guru - NIY already exists:', identifier);
-                  }
-                }
-              } catch (error) {
-                console.error('Error processing guru item:', item, error);
-              }
-            }
-
-            console.log('Guru processing complete:', { added, updated });
-            guruImported = added;
-            return { updated, added };
-          };
-
-          processGuruData().then((result) => {
-            console.log('Guru import result:', result);
-            guruAdded = result.added;
-            guruUpdated = result.updated;
-            loadData();
-          }).catch(error => {
-            console.error('Error in processGuruData:', error);
-          });
-        }
-
-        console.log('👨‍🎓 Processing siswa data:', siswaDataImport.length, 'items');
-
-        if (siswaDataImport.length > 0) {
-          // Process siswa data with update logic
-          const processSiswaData = async () => {
-            let updated = 0;
-            let added = 0;
-
-            for (const item of siswaDataImport) {
-              try {
-                console.log('Processing siswa item:', item);
-
-                // Validate required fields
-                if (!item.nama || !item.nama.trim()) {
-                  console.log('Skipping siswa item - no name:', item);
-                  continue;
-                }
-
-                // Determine role and generate identifier if needed
-                const role = item.sebagai === 'Siswa' || !item.sebagai ? 'Siswa' : 'Siswa'; // Default to Siswa for this section
-                let identifier = item.identifier ? item.identifier.toString().trim() : '';
-
-                if (!identifier) {
-                  identifier = await generateIdentifier(role);
-                  console.log('Generated identifier for siswa:', identifier);
-                }
-
-                // Check if siswa with same name already exists
-                const existingByName = await db.siswa.where('nama').equals(item.nama.trim()).first();
-                console.log('Existing siswa by name:', existingByName);
-
-                if (existingByName) {
-                  // Update existing record
-                  await db.siswa.update(existingByName.id, {
-                    nisn: identifier,
-                    jabatan: item.jabatan || existingByName.jabatan,
-                    sebagai: role,
-                    email: item.email || existingByName.email,
-                    wa: item.wa || existingByName.wa,
-                    status: 'active'
-                  });
-                  console.log('Updated siswa:', item.nama);
-                  updated++;
-                } else {
-                  // Check if NISN already exists
-                  const existingByNisn = await db.siswa.where('nisn').equals(identifier).first();
-                  console.log('Existing siswa by NISN:', existingByNisn);
-
-                  if (!existingByNisn) {
-                    // Add new record
-                    const newSiswa = {
-                      nama: item.nama.trim(),
-                      nisn: identifier,
-                      jabatan: item.jabatan || '',
-                      sebagai: role,
-                      email: item.email || '',
-                      wa: item.wa || '',
-                      status: 'active'
-                    };
-                    await db.siswa.add(newSiswa);
-                    console.log('Added new siswa:', item.nama);
-                    added++;
-                  } else {
-                    console.log('Skipping siswa - NISN already exists:', identifier);
-                  }
-                }
-              } catch (error) {
-                console.error('Error processing siswa item:', item, error);
-              }
-            }
-
-            console.log('Siswa processing complete:', { added, updated });
-            siswaImported = added;
-            return { updated, added };
-          };
-
-          processSiswaData().then((result) => {
-            console.log('Siswa import result:', result);
-            siswaAdded = result.added;
-            siswaUpdated = result.updated;
-            loadData();
-          }).catch(error => {
-            console.error('Error in processSiswaData:', error);
-          });
-        }
-
-        // Show detailed import results
-        let message = 'Import selesai!\n\n';
-
-        if (guruAdded > 0) message += `Guru baru: ${guruAdded}\n`;
-        if (guruUpdated > 0) message += `Guru diupdate: ${guruUpdated}\n`;
-        if (siswaAdded > 0) message += `Siswa baru: ${siswaAdded}\n`;
-        if (siswaUpdated > 0) message += `Siswa diupdate: ${siswaUpdated}\n`;
-
-        if (guruAdded === 0 && guruUpdated === 0 && siswaAdded === 0 && siswaUpdated === 0) {
-          message += 'Tidak ada data yang diimport.\n';
-        }
-
-        message += '\n📝 Catatan: Data dengan nama sama akan diupdate secara otomatis untuk menghindari duplikasi.';
-
-        alert(message);
-        event.target.value = '';
-      };
-      reader.readAsArrayBuffer(file);
+        alert(successMessage);
+      }
+    } catch (error) {
+      console.error('❌ Migration failed:', error);
+      alert('❌ Migrasi gagal: ' + error.message);
+    } finally {
+      setIsMigrating(false);
     }
   };
 
+  // CRUD operations
   const handleOpen = (item = null) => {
     setEditing(item);
     setForm(item || { nama: '', identifier: '', jabatan: '', sebagai: '', email: '', wa: '' });
@@ -447,109 +479,67 @@ const Database = ({ mode }) => {
     setEditing(null);
   };
 
-  const handleSave = () => {
-    if (form.sebagai === 'Guru') {
-      db.guru.add({
-        nama: form.nama,
-        niy: form.identifier,
-        jabatan: form.jabatan,
-        sebagai: form.sebagai,
-        email: form.email,
-        wa: form.wa,
-        status: 'active'
-      }).then(() => {
-        loadData();
-        handleClose();
-      });
-    } else {
-      db.siswa.add({
-        nama: form.nama,
-        nisn: form.identifier,
-        jabatan: form.jabatan,
-        sebagai: form.sebagai,
-        email: form.email,
-        wa: form.wa,
-        status: 'active'
-      }).then(() => {
-        loadData();
-        handleClose();
-      });
+  const handleSave = async () => {
+    try {
+      if (form.sebagai === 'Guru') {
+        if (editing) {
+          await db.guru.update(editing.id, {
+            nama: form.nama,
+            niy: form.identifier,
+            jabatan: form.jabatan,
+            sebagai: form.sebagai,
+            email: form.email,
+            wa: form.wa
+          });
+        } else {
+          await db.guru.add({
+            nama: form.nama,
+            niy: form.identifier,
+            jabatan: form.jabatan,
+            sebagai: form.sebagai,
+            email: form.email,
+            wa: form.wa,
+            status: 'active'
+          });
+        }
+      } else {
+        if (editing) {
+          await db.siswa.update(editing.id, {
+            nama: form.nama,
+            nisn: form.identifier,
+            jabatan: form.jabatan,
+            sebagai: form.sebagai,
+            email: form.email,
+            wa: form.wa
+          });
+        } else {
+          await db.siswa.add({
+            nama: form.nama,
+            nisn: form.identifier,
+            jabatan: form.jabatan,
+            sebagai: form.sebagai,
+            email: form.email,
+            wa: form.wa,
+            status: 'active'
+          });
+        }
+      }
+
+      await loadData();
+      handleClose();
+    } catch (error) {
+      console.error('Save error:', error);
+      alert('❌ Gagal menyimpan data: ' + error.message);
     }
   };
 
-  const handleDeleteSelected = () => {
-    if (confirm('Hapus data yang dipilih secara permanen?')) {
-      const promises = [];
-      selectedGuru.forEach(id => {
-        promises.push(db.guru.delete(id));
-      });
-      selectedSiswa.forEach(id => {
-        promises.push(db.siswa.delete(id));
-      });
-      Promise.all(promises).then(() => {
-        setSelectedGuru([]);
-        setSelectedSiswa([]);
-        loadData();
-      });
-    }
-  };
-
-  const handleMutasiSelected = () => {
-    setMutasiDialogOpen(true);
-  };
-
-  const confirmMutasi = () => {
-    const tanggalKeluar = new Date().toISOString().split('T')[0];
-    const promises = [];
-    selectedGuru.forEach(id => {
-      promises.push(
-        db.guru.get(id).then(item => {
-          if (item) {
-            const inactiveItem = { ...item, tanggal_keluar: tanggalKeluar, alasan };
-            return Promise.all([
-              db.guru_inactive.add(inactiveItem),
-              db.guru.delete(id)
-            ]);
-          }
-        })
-      );
-    });
-    selectedSiswa.forEach(id => {
-      promises.push(
-        db.siswa.get(id).then(item => {
-          if (item) {
-            const inactiveItem = { ...item, tanggal_keluar: tanggalKeluar, alasan };
-            return Promise.all([
-              db.siswa_inactive.add(inactiveItem),
-              db.siswa.delete(id)
-            ]);
-          }
-        })
-      );
-    });
-    Promise.all(promises).then(() => {
-      setSelectedGuru([]);
-      setSelectedSiswa([]);
-      setAlasan('');
-      setMutasiDialogOpen(false);
-      loadData();
-    });
-  };
-
+  // Selection handlers with consistency checks
   const handleSelectAllGuru = (checked) => {
-    if (checked) {
-      setSelectedGuru(guruData.map(item => item.id));
-    } else {
-      setSelectedGuru([]);
-    }
+    setSelectedGuru(checked ? guruData.map(item => item.id) : []);
   };
 
   const handleSelectAllSiswa = (checked) => {
-    if (checked) {
-      setSelectedSiswa(siswaData.map(item => item.id));
-    } else {
-      setSelectedSiswa([]);
-    }
+    setSelectedSiswa(checked ? siswaData.map(item => item.id) : []);
   };
 
   const handleSelectGuru = (id) => {
@@ -564,10 +554,103 @@ const Database = ({ mode }) => {
     );
   };
 
-  const allData = [
-    ...guruData.map(item => ({ ...item, identifier: item.niy })),
-    ...siswaData.map(item => ({ ...item, identifier: item.nisn }))
-  ];
+  // Delete selected records
+  const handleDeleteSelected = async () => {
+    if (!confirm('❌ Hapus data yang dipilih secara permanen?')) return;
+
+    try {
+      const deletePromises = [];
+      selectedGuru.forEach(id => deletePromises.push(db.guru.delete(id)));
+      selectedSiswa.forEach(id => deletePromises.push(db.siswa.delete(id)));
+
+      await Promise.all(deletePromises);
+      setSelectedGuru([]);
+      setSelectedSiswa([]);
+      await loadData();
+
+      alert('✅ Data berhasil dihapus');
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert('❌ Gagal menghapus data: ' + error.message);
+    }
+  };
+
+  // Mutasi (transfer) selected records
+  const handleMutasiSelected = () => {
+    setMutasiDialogOpen(true);
+  };
+
+  const confirmMutasi = async () => {
+    if (!alasan.trim()) {
+      alert('❌ Alasan mutasi harus diisi!');
+      return;
+    }
+
+    try {
+      const tanggalKeluar = new Date().toISOString().split('T')[0];
+      const mutasiPromises = [];
+
+      // Process guru mutasi
+      for (const id of selectedGuru) {
+        const item = await db.guru.get(id);
+        if (item) {
+          const inactiveItem = { ...item, tanggal_keluar: tanggalKeluar, alasan };
+          mutasiPromises.push(
+            db.guru_inactive.add(inactiveItem),
+            db.guru.delete(id)
+          );
+        }
+      }
+
+      // Process siswa mutasi
+      for (const id of selectedSiswa) {
+        const item = await db.siswa.get(id);
+        if (item) {
+          const inactiveItem = { ...item, tanggal_keluar: tanggalKeluar, alasan };
+          mutasiPromises.push(
+            db.siswa_inactive.add(inactiveItem),
+            db.siswa.delete(id)
+          );
+        }
+      }
+
+      await Promise.all(mutasiPromises);
+      setSelectedGuru([]);
+      setSelectedSiswa([]);
+      setAlasan('');
+      setMutasiDialogOpen(false);
+      await loadData();
+
+      alert('✅ Mutasi berhasil diproses');
+    } catch (error) {
+      console.error('Mutasi error:', error);
+      alert('❌ Gagal memproses mutasi: ' + error.message);
+    }
+  };
+
+  // Template download
+  const handleDownloadTemplate = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["nama", "identifier", "jabatan", "sebagai", "email", "wa"],
+      ["Contoh Guru", "G001", "Guru Matematika", "Guru", "guru@school.com", "08123456789"],
+      ["Contoh Siswa", "S001", "Kelas 10A", "Siswa", "siswa@school.com", "08111111111"]
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Data");
+    XLSX.writeFile(wb, "template_data.xlsx");
+  };
+
+  // Export to Excel
+  const handleExportExcel = () => {
+    const allData = [
+      ...guruData.map(item => ({ ...item, identifier: item.niy })),
+      ...siswaData.map(item => ({ ...item, identifier: item.nisn }))
+    ];
+    const ws = XLSX.utils.json_to_sheet(allData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Data Lengkap");
+    XLSX.writeFile(wb, "data_lengkap.xlsx");
+  };
 
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
@@ -575,73 +658,121 @@ const Database = ({ mode }) => {
         Database Management - Mode: {mode}
       </Typography>
 
+      {/* Info Panel */}
       <Box sx={{ mb: 3, p: 2, bgcolor: 'info.main', color: 'white', borderRadius: 1 }}>
         <Typography variant="h6" gutterBottom>
           ℹ️ Sinkronisasi Data Antar Device
         </Typography>
         <Typography variant="body2">
-          Data disimpan secara lokal di browser masing-masing device. Untuk menyamakan data antar device:
+          Data disimpan secara lokal di browser. Untuk menyamakan data antar device:
         </Typography>
         <Typography variant="body2" component="div" sx={{ mt: 1 }}>
-          <strong>Cara Sync Data:</strong>
-          <br />1. Di device utama: Klik "📤 Backup Semua Data" → simpan file .json
-          <br />2. Di device lain: Klik "📥 Restore Data" → pilih file backup
-          <br />3. Data akan otomatis tersinkronisasi
+          <strong>Cara Sync:</strong><br/>
+          1. Di device utama: <GetApp/> Backup → simpan file .json<br/>
+          2. Di device lain: <Publish/> Restore → pilih file backup<br/>
+          3. Data otomatis tersinkronisasi
         </Typography>
         <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>
-          💡 Tip: Lakukan backup secara berkala untuk menghindari kehilangan data
+          💡 Lakukan backup berkala untuk menghindari kehilangan data
         </Typography>
       </Box>
 
-      <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+      {/* Search and Action Buttons */}
+      <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+        <TextField
+          label="🔍 Cari Data"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Cari nama, NIY, NISN, jabatan, email..."
+          sx={{ minWidth: 300 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          }}
+        />
         <Button variant="contained" onClick={handleDownloadTemplate}>
-          Download Template
+          📥 Template
         </Button>
         <Button variant="outlined" onClick={handleExportExcel}>
-          Export Excel
+          📊 Export Excel
         </Button>
-        <Button variant="outlined" component="label">
-          Import Excel
+        <Button variant="outlined" component="label" disabled={isImporting}>
+          📤 Import Excel
           <input type="file" accept=".xlsx,.xls" hidden onChange={handleImportExcel} />
         </Button>
-        <Button variant="contained" color="success" onClick={handleExportAllData}>
-          📤 Backup Semua Data
+        <Button
+          variant="contained"
+          color="success"
+          startIcon={isExporting ? <CircularProgress size={20} /> : <GetApp/>}
+          onClick={handleExportAllData}
+          disabled={isExporting}
+        >
+          {isExporting ? '📤 Exporting...' : '📤 Backup Data'}
         </Button>
-        <Button variant="contained" color="info" component="label">
+        <Button
+          variant="contained"
+          color="info"
+          component="label"
+          startIcon={<Publish/>}
+        >
           📥 Restore Data
           <input type="file" accept=".json" hidden onChange={handleImportAllData} />
         </Button>
         <Button
           variant="contained"
           color="secondary"
-          startIcon={<CloudUpload />}
+          startIcon={isMigrating ? <CircularProgress size={20} /> : <CloudUpload/>}
           onClick={() => setMigrationDialog(true)}
           disabled={isMigrating}
         >
-          {isMigrating ? '🔄 Migrating...' : '☁️ Sync ke Supabase'}
+          {isMigrating ? '☁️ Migrating...' : '☁️ Sync Supabase'}
         </Button>
         <Button variant="contained" color="primary" onClick={() => handleOpen()}>
-          Tambah Manual
+          ➕ Tambah Manual
         </Button>
-        <Button variant="contained" color="error" onClick={handleDeleteSelected} disabled={selectedGuru.length === 0 && selectedSiswa.length === 0}>
-          Hapus ({selectedGuru.length + selectedSiswa.length})
+        <Button
+          variant="contained"
+          color="error"
+          onClick={handleDeleteSelected}
+          disabled={selectedGuru.length === 0 && selectedSiswa.length === 0}
+        >
+          🗑️ Hapus ({selectedGuru.length + selectedSiswa.length})
         </Button>
-        <Button variant="contained" color="warning" onClick={handleMutasiSelected} disabled={selectedGuru.length === 0 && selectedSiswa.length === 0}>
-          Mutasi/Keluar ({selectedGuru.length + selectedSiswa.length})
+        <Button
+          variant="contained"
+          color="warning"
+          onClick={handleMutasiSelected}
+          disabled={selectedGuru.length === 0 && selectedSiswa.length === 0}
+        >
+          📋 Mutasi ({selectedGuru.length + selectedSiswa.length})
         </Button>
       </Box>
 
+      {/* Import Progress */}
+      {isImporting && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="body2" gutterBottom>
+            📤 Importing data... {importProgress.toFixed(0)}%
+          </Typography>
+          <LinearProgress variant="determinate" value={importProgress} />
+        </Box>
+      )}
+
+      {/* Guru Table */}
       <Typography variant="h6" gutterBottom>
-        Data Guru ({guruData.length})
+        👨‍🏫 Data Guru ({filteredGuruData.length}{searchTerm ? ` dari ${guruData.length}` : ''})
       </Typography>
-      <TableContainer component={Paper} sx={{ mb: 3, overflowX: 'auto' }}>
+      <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox">
                 <Checkbox
-                  checked={selectedGuru.length === guruData.length && guruData.length > 0}
-                  indeterminate={selectedGuru.length > 0 && selectedGuru.length < guruData.length}
+                  checked={selectedGuru.length === filteredGuruData.length && filteredGuruData.length > 0}
+                  indeterminate={selectedGuru.length > 0 && selectedGuru.length < filteredGuruData.length}
                   onChange={(e) => handleSelectAllGuru(e.target.checked)}
                 />
               </TableCell>
@@ -654,37 +785,56 @@ const Database = ({ mode }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {guruData.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selectedGuru.includes(row.id)}
-                    onChange={() => handleSelectGuru(row.id)}
-                  />
-                </TableCell>
-                <TableCell>{row.nama}</TableCell>
-                <TableCell>{row.niy}</TableCell>
-                <TableCell>{row.jabatan}</TableCell>
-                <TableCell>{row.sebagai}</TableCell>
-                <TableCell>{row.email}</TableCell>
-                <TableCell>{row.wa}</TableCell>
-              </TableRow>
-            ))}
+            {filteredGuruData
+              .slice(guruPage * guruRowsPerPage, guruPage * guruRowsPerPage + guruRowsPerPage)
+              .map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selectedGuru.includes(row.id)}
+                      onChange={() => handleSelectGuru(row.id)}
+                    />
+                  </TableCell>
+                  <TableCell>{row.nama}</TableCell>
+                  <TableCell>{row.niy}</TableCell>
+                  <TableCell>{row.jabatan}</TableCell>
+                  <TableCell>{row.sebagai}</TableCell>
+                  <TableCell>{row.email}</TableCell>
+                  <TableCell>{row.wa}</TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={filteredGuruData.length}
+        page={guruPage}
+        onPageChange={(event, newPage) => setGuruPage(newPage)}
+        rowsPerPage={guruRowsPerPage}
+        onRowsPerPageChange={(event) => {
+          setGuruRowsPerPage(parseInt(event.target.value, 10));
+          setGuruPage(0);
+        }}
+        rowsPerPageOptions={[10, 20, 50, 100]}
+        labelRowsPerPage="Baris per halaman:"
+        labelDisplayedRows={({ from, to, count }) =>
+          `${from}-${to} dari ${count !== -1 ? count : `lebih dari ${to}`}`
+        }
+      />
 
+      {/* Siswa Table */}
       <Typography variant="h6" gutterBottom>
-        Data Siswa ({siswaData.length})
+        👨‍🎓 Data Siswa ({filteredSiswaData.length}{searchTerm ? ` dari ${siswaData.length}` : ''})
       </Typography>
-      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+      <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox">
                 <Checkbox
-                  checked={selectedSiswa.length === siswaData.length && siswaData.length > 0}
-                  indeterminate={selectedSiswa.length > 0 && selectedSiswa.length < siswaData.length}
+                  checked={selectedSiswa.length === filteredSiswaData.length && filteredSiswaData.length > 0}
+                  indeterminate={selectedSiswa.length > 0 && selectedSiswa.length < filteredSiswaData.length}
                   onChange={(e) => handleSelectAllSiswa(e.target.checked)}
                 />
               </TableCell>
@@ -697,28 +847,47 @@ const Database = ({ mode }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {siswaData.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selectedSiswa.includes(row.id)}
-                    onChange={() => handleSelectSiswa(row.id)}
-                  />
-                </TableCell>
-                <TableCell>{row.nama}</TableCell>
-                <TableCell>{row.nisn}</TableCell>
-                <TableCell>{row.jabatan}</TableCell>
-                <TableCell>{row.sebagai}</TableCell>
-                <TableCell>{row.email}</TableCell>
-                <TableCell>{row.wa}</TableCell>
-              </TableRow>
-            ))}
+            {filteredSiswaData
+              .slice(siswaPage * siswaRowsPerPage, siswaPage * siswaRowsPerPage + siswaRowsPerPage)
+              .map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selectedSiswa.includes(row.id)}
+                      onChange={() => handleSelectSiswa(row.id)}
+                    />
+                  </TableCell>
+                  <TableCell>{row.nama}</TableCell>
+                  <TableCell>{row.nisn}</TableCell>
+                  <TableCell>{row.jabatan}</TableCell>
+                  <TableCell>{row.sebagai}</TableCell>
+                  <TableCell>{row.email}</TableCell>
+                  <TableCell>{row.wa}</TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={filteredSiswaData.length}
+        page={siswaPage}
+        onPageChange={(event, newPage) => setSiswaPage(newPage)}
+        rowsPerPage={siswaRowsPerPage}
+        onRowsPerPageChange={(event) => {
+          setSiswaRowsPerPage(parseInt(event.target.value, 10));
+          setSiswaPage(0);
+        }}
+        rowsPerPageOptions={[10, 20, 50, 100]}
+        labelRowsPerPage="Baris per halaman:"
+        labelDisplayedRows={({ from, to, count }) =>
+          `${from}-${to} dari ${count !== -1 ? count : `lebih dari ${to}`}`
+        }
+      />
 
+      {/* Add/Edit Dialog */}
       <Dialog open={open} onClose={handleClose}>
-        <DialogTitle>{editing ? 'Edit Data' : 'Tambah Data Manual'}</DialogTitle>
+        <DialogTitle>{editing ? '✏️ Edit Data' : '➕ Tambah Data Manual'}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
@@ -773,36 +942,38 @@ const Database = ({ mode }) => {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button onClick={handleClose}>❌ Batal</Button>
+          <Button onClick={handleSave}>✅ Simpan</Button>
         </DialogActions>
       </Dialog>
 
+      {/* Mutasi Dialog */}
       <Dialog open={mutasiDialogOpen} onClose={() => setMutasiDialogOpen(false)}>
-        <DialogTitle>Konfirmasi Mutasi/Keluar</DialogTitle>
+        <DialogTitle>📋 Konfirmasi Mutasi/Keluar</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             margin="dense"
-            label="Alasan"
+            label="Alasan Mutasi"
             fullWidth
             variant="standard"
             value={alasan}
             onChange={(e) => setAlasan(e.target.value)}
             multiline
             rows={3}
+            placeholder="Contoh: Pindah sekolah, Lulus, dll."
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setMutasiDialogOpen(false)}>Cancel</Button>
-          <Button onClick={confirmMutasi}>Konfirmasi</Button>
+          <Button onClick={() => setMutasiDialogOpen(false)}>❌ Batal</Button>
+          <Button onClick={confirmMutasi} disabled={!alasan.trim()}>✅ Konfirmasi Mutasi</Button>
         </DialogActions>
       </Dialog>
 
       {/* Migration Dialog */}
       <Dialog open={migrationDialog} onClose={() => !isMigrating && setMigrationDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <CloudUpload /> Migrasi Data ke Supabase
+          <CloudUpload /> ☁️ Migrasi Data ke Supabase
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
@@ -814,15 +985,13 @@ const Database = ({ mode }) => {
               <Typography variant="h6" gutterBottom color="success.dark">
                 ✅ Migrasi Berhasil!
               </Typography>
-
               <Typography variant="body2" component="div">
-                <strong>Hasil Migrasi:</strong><br/>
+                <strong>📊 Hasil Migrasi:</strong><br/>
                 • Guru: {migrationResults.guru?.synced || 0} synced, {migrationResults.guru?.skipped || 0} skipped<br/>
                 • Siswa: {migrationResults.siswa?.synced || 0} synced, {migrationResults.siswa?.skipped || 0} skipped<br/>
-                • Attendance: {migrationResults.attendance?.synced || 0} synced, {migrationResults.attendance?.skipped || 0} skipped<br/>
-                • Perizinan: {migrationResults.perizinan?.synced || 0} synced, {migrationResults.perizinan?.skipped || 0} skipped<br/>
-                • Settings: {migrationResults.settings?.settingsSynced || 0} synced, {migrationResults.settings?.settingsSkipped || 0} skipped<br/>
-                • School Settings: {migrationResults.settings?.schoolSettings || 0} synced
+                • Attendance: {migrationResults.attendance?.synced || 0} synced<br/>
+                • Perizinan: {migrationResults.perizinan?.synced || 0} synced<br/>
+                • Settings: {migrationResults.settings?.settingsSynced || 0} synced
               </Typography>
             </Box>
           )}
@@ -842,7 +1011,7 @@ const Database = ({ mode }) => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setMigrationDialog(false)} disabled={isMigrating}>
-            {migrationResults ? 'Tutup' : 'Batal'}
+            {migrationResults ? '✅ Tutup' : '❌ Batal'}
           </Button>
           {!migrationResults && (
             <Button

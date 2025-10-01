@@ -4,7 +4,7 @@
 export const WHATSAPP_CONFIG = {
   // Device ID dari WhaCenter Dashboard
   // Cara mencari: Login ke whacenter.com → Device Management → Copy Device ID
-  deviceId: '9b33e3a9-e9ff-4f8b-a62a-90b5eee3f946', // ⚠️ GANTI DENGAN DEVICE ID ANDA
+  deviceId: import.meta.env.VITE_WHATSAPP_DEVICE_ID || '9b33e3a9-e9ff-4f8b-a62a-90b5eee3f946', // ⚠️ GANTI DENGAN DEVICE ID ANDA
 
   // API Endpoints (sudah dikonfigurasi dengan proxy)
   endpoints: {

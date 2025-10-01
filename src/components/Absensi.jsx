@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Tabs, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, IconButton, Select, MenuItem, FormControl, InputLabel, Checkbox, Alert, LinearProgress, InputAdornment, Stack, Grid } from '@mui/material';
+import { Box, Typography, Tabs, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, IconButton, Select, MenuItem, FormControl, InputLabel, Checkbox, Alert, LinearProgress, InputAdornment, Stack, Grid, TablePagination } from '@mui/material';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { useNavigate } from 'react-router-dom';
 import AddIcon from '@mui/icons-material/Add';
@@ -25,6 +25,7 @@ const Absensi = ({ mode }) => {
   const [earlyDismissalDialog, setEarlyDismissalDialog] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedDailyAttendance, setSelectedDailyAttendance] = useState([]);
+  const [selectedRecapAttendance, setSelectedRecapAttendance] = useState([]);
   const [editingSetting, setEditingSetting] = useState(null);
   const [editDialog, setEditDialog] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -61,6 +62,10 @@ const Absensi = ({ mode }) => {
     lastCheck: null,
     remindersSent: 0
   });
+
+  // Pagination state for Rekap Absensi
+  const [rekapPage, setRekapPage] = useState(0);
+  const [rekapRowsPerPage, setRekapRowsPerPage] = useState(20);
 
   useEffect(() => {
     loadAttendanceData();
@@ -1200,6 +1205,20 @@ Terima kasih atas perhatiannya.`;
   };
 
 
+  const handleDeleteSelectedDaily = () => {
+    if (selectedDailyAttendance.length === 0) {
+      alert('Pilih data yang ingin dihapus terlebih dahulu');
+      return;
+    }
+    if (confirm(`Hapus ${selectedDailyAttendance.length} record absensi yang dipilih?`)) {
+      Promise.all(selectedDailyAttendance.map(id => db.attendance.delete(id))).then(() => {
+        loadAttendanceData();
+        setSelectedDailyAttendance([]);
+        alert('Data absensi yang dipilih telah dihapus');
+      });
+    }
+  };
+
   const handleDeleteAllAttendance = () => {
     if (confirm('Hapus SEMUA record absensi dan perizinan? Tindakan ini tidak dapat dibatalkan!')) {
       if (confirm('Apakah Anda YAKIN ingin menghapus semua data absensi dan perizinan?')) {
@@ -1410,9 +1429,111 @@ Terima kasih atas perhatiannya.`;
     );
   };
 
-  const renderRekapan = () => (
-    <RekapAbsen mode="embedded" />
-  );
+  const renderRekapan = () => {
+    // Sort attendance data by date (newest first)
+    const sortedAttendance = [...attendance].sort((a, b) => new Date(b.tanggal) - new Date(a.tanggal));
+
+    // Calculate pagination
+    const totalRecords = sortedAttendance.length;
+    const startIndex = rekapPage * rekapRowsPerPage;
+    const endIndex = startIndex + rekapRowsPerPage;
+    const paginatedData = sortedAttendance.slice(startIndex, endIndex);
+
+    const handleChangePage = (event, newPage) => {
+      setRekapPage(newPage);
+    };
+
+    const handleChangeRowsPerPage = (event) => {
+      setRekapRowsPerPage(parseInt(event.target.value, 10));
+      setRekapPage(0);
+    };
+
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6">Rekap Absensi Lengkap ({totalRecords} record)</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Halaman {rekapPage + 1} dari {Math.ceil(totalRecords / rekapRowsPerPage)}
+          </Typography>
+        </Box>
+
+        <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+          <Table sx={{ minWidth: 800 }}>
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableCell sx={{ fontWeight: 'bold' }}>Tanggal</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Identifier</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Nama</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Jabatan</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Jam</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Jenis</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Keterangan</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Sebagai</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paginatedData.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Belum ada data absensi
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedData.map((row, index) => (
+                  <TableRow key={`${row.id || index}`} hover>
+                    <TableCell>{row.tanggal}</TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{row.identifier}</TableCell>
+                    <TableCell sx={{ fontWeight: 'medium' }}>{row.nama}</TableCell>
+                    <TableCell>{row.jabatan}</TableCell>
+                    <TableCell>{row.jam || '-'}</TableCell>
+                    <TableCell>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          bgcolor: row.dataType === 'perizinan' ? 'warning.main' : 'success.main',
+                          color: 'white',
+                          px: 1,
+                          py: 0.5,
+                          borderRadius: 1,
+                          display: 'inline-block',
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold'
+                        }}
+                      >
+                        {row.dataType === 'perizinan' ? row.jenis_izin : (row.att || row.status)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {row.dataType === 'perizinan' ? 'Izin' : 'Absensi'}
+                    </TableCell>
+                    <TableCell>{row.keterangan || '-'}</TableCell>
+                    <TableCell>{row.sebagai}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <TablePagination
+          component="div"
+          count={totalRecords}
+          page={rekapPage}
+          onPageChange={handleChangePage}
+          rowsPerPage={rekapRowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          rowsPerPageOptions={[10, 20, 50, 100]}
+          labelRowsPerPage="Baris per halaman:"
+          labelDisplayedRows={({ from, to, count }) =>
+            `${from}-${to} dari ${count !== -1 ? count : `lebih dari ${to}`}`
+          }
+        />
+      </Box>
+    );
+  };
 
 
   const renderJabatanTimeSettings = () => (
@@ -1578,14 +1699,23 @@ Terima kasih atas perhatiannya.`;
       </Paper>
 
       <Typography variant="h6" gutterBottom>Pengaturan Waktu Absensi</Typography>
-      <Button
-        variant="contained"
-        startIcon={<AddIcon />}
-        onClick={() => setSettingsDialog(true)}
-        sx={{ mb: 2 }}
-      >
-        Tambah Pengaturan
-      </Button>
+      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setSettingsDialog(true)}
+        >
+          Tambah Pengaturan
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<CloudUploadIcon />}
+          onClick={() => setExcelImportDialog(true)}
+          color="success"
+        >
+          📤 Import dari Excel
+        </Button>
+      </Box>
 
       {/* Guru Settings */}
       <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>Pengaturan Guru</Typography>

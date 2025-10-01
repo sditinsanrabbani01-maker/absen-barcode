@@ -1,628 +1,75 @@
-import { supabase, DatabaseService, TABLES } from './config/supabase.js';
+import Dexie from 'dexie';
 
-// Database wrapper to maintain compatibility with existing code
-export const db = {
-  // Guru operations
-  guru: {
-    async toArray() {
-      return await DatabaseService.getGuru(true);
-    },
+// Initialize IndexedDB database with Dexie
+export const db = new Dexie('AbsenBarcodeDB');
 
-    where(field) {
-      return {
-        equals: (value) => {
-          // Return object that matches Dexie API pattern
-          const queryResult = {
-            toArray: () => {
-              if (field === 'status') {
-                return DatabaseService.getGuru(value === 'active');
-              }
-              if (field === 'nama') {
-                return supabase
-                  .from(TABLES.GURU)
-                  .select('*')
-                  .eq('nama', value)
-                  .eq('status', 'active')
-                  .then(({ data, error }) => {
-                    if (error) throw error;
-                    return data;
-                  });
-              }
-              return Promise.resolve([]);
-            },
-            first: () => {
-              return this.toArray().then(results => results[0] || null);
-            },
-            count: () => {
-              // Return count synchronously
-              let result = 0;
-              (async () => {
-                try {
-                  if (field === 'status') {
-                    const data = await DatabaseService.getGuru(value === 'active');
-                    result = data.length;
-                  } else if (field === 'nama') {
-                    const { data, error } = await supabase
-                      .from(TABLES.GURU)
-                      .select('*', { count: 'exact', head: true })
-                      .eq('nama', value)
-                      .eq('status', 'active');
-                    if (!error) {
-                      result = data?.count || 0;
-                    }
-                  }
-                } catch (err) {
-                  console.error('Error counting in where().equals():', err);
-                }
-              })();
-              return result;
-            }
-          };
-          return queryResult;
-        }
-      };
-    },
+db.version(1).stores({
+  guru: '++id, nama, niy, jabatan, sebagai, email, wa, status, pendidikan, mk_start_year, mk_start_month, gaji_pokok, tunjangan_kinerja, tunjangan_umum, tunjangan_istri, tunjangan_anak, tunjangan_kepala_sekolah, tunjangan_wali_kelas, honor_bendahara, keterangan, custom_base_salary, created_at, updated_at',
+  siswa: '++id, nama, nisn, jabatan, sebagai, email, wa, status, created_at, updated_at',
+  attendance: '++id, tanggal, identifier, nama, jabatan, jam, status, keterangan, att, sebagai, wa, email, created_at, updated_at',
+  perizinan: '++id, tanggal, tanggal_mulai, tanggal_selesai, identifier, nama, status, jenis_izin, keterangan, sebagai, created_at, updated_at',
+  penggajian: '++id, identifier, nama, jabatan, sebagai, bulan, tahun, gaji_pokok, tunjangan_kinerja, tunjangan_umum, tunjangan_istri, tunjangan_anak, tunjangan_kepala_sekolah, tunjangan_wali_kelas, honor_bendahara, potongan, total_gaji, status_bayar, created_at, updated_at',
+  attendance_settings: '++id, type, start_time, end_time, att, label, group_name, created_at, updated_at',
+  school_settings: '++id, nama_sekolah, npsn, alamat_desa, alamat_kecamatan, alamat_kabupaten, alamat_provinsi, alamat_negara, nama_kepala_sekolah, niy_kepala_sekolah, created_at, updated_at',
+  reminder_settings: '++id, enabled, reminder_time, test_mode, last_reminder_date, created_at, updated_at',
+  guru_inactive: '++id, nama, niy, jabatan, sebagai, email, wa, tanggal_keluar, alasan, created_at, updated_at',
+  siswa_inactive: '++id, nama, nisn, jabatan, sebagai, email, wa, tanggal_keluar, alasan, created_at, updated_at'
+});
 
-    async add(data) {
-      return await DatabaseService.create(TABLES.GURU, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    async update(id, data) {
-      return await DatabaseService.update(TABLES.GURU, id, {
-        ...data,
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    delete(id) {
-      return DatabaseService.delete(TABLES.GURU, id);
-    },
-
-    get(id) {
-      return DatabaseService.getById(TABLES.GURU, id);
-    },
-
-    count() {
-      // Execute count synchronously and return the number
-      let result = 0;
-      (async () => {
-        try {
-          const { count, error } = await supabase
-            .from(TABLES.GURU)
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'active');
-          if (!error) {
-            result = count || 0;
-          }
-        } catch (err) {
-          console.error('Error counting guru:', err);
-        }
-      })();
-      return result;
-    }
-  },
-
-  // Siswa operations
-  siswa: {
-    async toArray() {
-      return await DatabaseService.getSiswa(true);
-    },
-
-    where(field) {
-      return {
-        equals: (value) => {
-          const queryResult = {
-            toArray: () => {
-              if (field === 'status') {
-                return DatabaseService.getSiswa(value === 'active');
-              }
-              if (field === 'nama') {
-                return supabase
-                  .from(TABLES.SISWA)
-                  .select('*')
-                  .eq('nama', value)
-                  .eq('status', 'active')
-                  .then(({ data, error }) => {
-                    if (error) throw error;
-                    return data;
-                  });
-              }
-              return Promise.resolve([]);
-            },
-            first: () => {
-              return this.toArray().then(results => results[0] || null);
-            },
-            count: () => {
-              let result = 0;
-              (async () => {
-                try {
-                  if (field === 'status') {
-                    const data = await DatabaseService.getSiswa(value === 'active');
-                    result = data.length;
-                  } else if (field === 'nama') {
-                    const { data, error } = await supabase
-                      .from(TABLES.SISWA)
-                      .select('*', { count: 'exact', head: true })
-                      .eq('nama', value)
-                      .eq('status', 'active');
-                    if (!error) {
-                      result = data?.count || 0;
-                    }
-                  }
-                } catch (err) {
-                  console.error('Error counting siswa in where().equals():', err);
-                }
-              })();
-              return result;
-            }
-          };
-          return queryResult;
-        }
-      };
-    },
-
-    async add(data) {
-      return await DatabaseService.create(TABLES.SISWA, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    async update(id, data) {
-      return await DatabaseService.update(TABLES.SISWA, id, {
-        ...data,
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    delete(id) {
-      return DatabaseService.delete(TABLES.SISWA, id);
-    },
-
-    get(id) {
-      return DatabaseService.getById(TABLES.SISWA, id);
-    },
-
-    count() {
-      // Execute count synchronously and return the number
-      let result = 0;
-      (async () => {
-        try {
-          const { count, error } = await supabase
-            .from(TABLES.SISWA)
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'active');
-          if (!error) {
-            result = count || 0;
-          }
-        } catch (err) {
-          console.error('Error counting siswa:', err);
-        }
-      })();
-      return result;
-    }
-  },
-
-  // Attendance operations
-  attendance: {
-    async toArray() {
-      // Get current month data for performance
-      const currentDate = new Date();
-      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-
-      return await DatabaseService.getAttendanceByDateRange(
-        startOfMonth.toISOString().split('T')[0],
-        endOfMonth.toISOString().split('T')[0]
-      );
-    },
-
-    async add(data) {
-      return await DatabaseService.create(TABLES.ATTENDANCE, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    where(field) {
-      return {
-        equals: (value) => {
-          // Return object that matches Dexie API exactly
-          return {
-            toArray: () => {
-              if (field === 'identifier') {
-                return supabase
-                  .from(TABLES.ATTENDANCE)
-                  .select('*')
-                  .eq('identifier', value)
-                  .then(({ data, error }) => {
-                    if (error) throw error;
-                    return data;
-                  });
-              }
-              if (field === 'tanggal') {
-                return supabase
-                  .from(TABLES.ATTENDANCE)
-                  .select('*')
-                  .eq('tanggal', value)
-                  .then(({ data, error }) => {
-                    if (error) throw error;
-                    return data;
-                  });
-              }
-              return Promise.resolve([]);
-            },
-            count: () => {
-              // Return count synchronously for compatibility
-              let result = 0;
-              (async () => {
-                try {
-                  if (field === 'tanggal') {
-                    const { data, error } = await supabase
-                      .from(TABLES.ATTENDANCE)
-                      .select('*', { count: 'exact', head: true })
-                      .eq('tanggal', value);
-                    if (!error) {
-                      result = data?.count || 0;
-                    }
-                  }
-                } catch (err) {
-                  console.error('Error counting attendance:', err);
-                }
-              })();
-              return result;
-            }
-          };
-        }
-      };
-    },
-
-    delete(id) {
-      return DatabaseService.delete(TABLES.ATTENDANCE, id);
-    },
-
-    async clear() {
-      const { error } = await supabase
-        .from(TABLES.ATTENDANCE)
-        .delete()
-        .neq('id', 0); // Delete all records
-      if (error) throw error;
-    }
-  },
-
-  // Perizinan operations
-  perizinan: {
-    async toArray() {
-      // Get current month data for performance
-      const currentDate = new Date();
-      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-
-      return await DatabaseService.getPerizinanByDateRange(
-        startOfMonth.toISOString().split('T')[0],
-        endOfMonth.toISOString().split('T')[0]
-      );
-    },
-
-    async add(data) {
-      return await DatabaseService.create(TABLES.PERIZINAN, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    where(field) {
-      return {
-        equals: (value) => {
-          return {
-            and: (condition) => {
-              return {
-                toArray: () => {
-                  if (field === 'tanggal') {
-                    return supabase
-                      .from(TABLES.PERIZINAN)
-                      .select('*')
-                      .eq('tanggal', value)
-                      .then(({ data, error }) => {
-                        if (error) throw error;
-                        return data;
-                      });
-                  }
-                  return Promise.resolve([]);
-                },
-
-                first: () => {
-                  return this.toArray().then(results => results[0] || null);
-                }
-              };
-            }
-          };
-        }
-      };
-    },
-
-    delete(id) {
-      return DatabaseService.delete(TABLES.PERIZINAN, id);
-    },
-
-    async clear() {
-      const { error } = await supabase
-        .from(TABLES.PERIZINAN)
-        .delete()
-        .neq('id', 0); // Delete all records
-      if (error) throw error;
-    }
-  },
-
-  // School settings operations
-  school_settings: {
-    toCollection() {
-      return {
-        first: () => {
-          return supabase
-            .from(TABLES.SCHOOL_SETTINGS)
-            .select('*')
-            .limit(1)
-            .then(({ data, error }) => {
-              if (error) throw error;
-              return data[0] || null;
-            });
-        },
-        limit: (count) => {
-          return {
-            toArray: () => {
-              return supabase
-                .from(TABLES.SCHOOL_SETTINGS)
-                .select('*')
-                .limit(count)
-                .then(({ data, error }) => {
-                  if (error) throw error;
-                  return data;
-                });
-            }
-          };
-        }
-      };
-    },
-
-    async add(data) {
-      return await DatabaseService.create(TABLES.SCHOOL_SETTINGS, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    }
-  },
-
-  // Attendance settings operations
-  attendance_settings: {
-    async toArray() {
-      return await DatabaseService.getAll(TABLES.ATTENDANCE_SETTINGS);
-    },
-
-    async add(data) {
-      return await DatabaseService.create(TABLES.ATTENDANCE_SETTINGS, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    async update(id, data) {
-      return await DatabaseService.update(TABLES.ATTENDANCE_SETTINGS, id, {
-        ...data,
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    delete(id) {
-      return DatabaseService.delete(TABLES.ATTENDANCE_SETTINGS, id);
-    },
-
-    where(field) {
-      return {
-        equals: (value) => {
-          return {
-            first: () => {
-              return supabase
-                .from(TABLES.ATTENDANCE_SETTINGS)
-                .select('*')
-                .eq(field, value)
-                .limit(1)
-                .then(({ data, error }) => {
-                  if (error) throw error;
-                  return data[0] || null;
-                });
-            },
-
-            toArray: () => {
-              return supabase
-                .from(TABLES.ATTENDANCE_SETTINGS)
-                .select('*')
-                .eq(field, value)
-                .then(({ data, error }) => {
-                  if (error) throw error;
-                  return data;
-                });
-            }
-          };
-        }
-      };
-    },
-
-    count() {
-      // Execute count synchronously and return the number
-      let result = 0;
-      (async () => {
-        try {
-          const { count, error } = await supabase
-            .from(TABLES.ATTENDANCE_SETTINGS)
-            .select('*', { count: 'exact', head: true });
-          if (!error) {
-            result = count || 0;
-          }
-        } catch (err) {
-          console.error('Error counting attendance_settings:', err);
-        }
-      })();
-      return result;
-    }
-  },
-
-  // Penggajian operations
-  penggajian: {
-    async toArray() {
-      return await DatabaseService.getAll(TABLES.PENGAJIAN);
-    },
-
-    async add(data) {
-      return await DatabaseService.create(TABLES.PENGAJIAN, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    async update(id, data) {
-      return await DatabaseService.update(TABLES.PENGAJIAN, id, {
-        ...data,
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    count() {
-      let result = 0;
-      (async () => {
-        try {
-          const { count, error } = await supabase
-            .from(TABLES.PENGAJIAN)
-            .select('*', { count: 'exact', head: true });
-          if (!error) {
-            result = count || 0;
-          }
-        } catch (err) {
-          console.error('Error counting penggajian:', err);
-        }
-      })();
-      return result;
-    }
-  },
-
-  // Reminder settings operations
-  reminder_settings: {
-    toCollection() {
-      return {
-        first: () => {
-          return supabase
-            .from(TABLES.REMINDER_SETTINGS)
-            .select('*')
-            .limit(1)
-            .then(({ data, error }) => {
-              if (error) throw error;
-              return data[0] || null;
-            });
-        },
-        limit: (count) => {
-          return {
-            toArray: () => {
-              return supabase
-                .from(TABLES.REMINDER_SETTINGS)
-                .select('*')
-                .limit(count)
-                .then(({ data, error }) => {
-                  if (error) throw error;
-                  return data;
-                });
-            }
-          };
-        }
-      };
-    },
-
-    async add(data) {
-      return await DatabaseService.create(TABLES.REMINDER_SETTINGS, {
-        ...data,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    },
-
-    async update(id, data) {
-      return await DatabaseService.update(TABLES.REMINDER_SETTINGS, id, {
-        ...data,
-        updated_at: new Date().toISOString()
-      });
-    }
-  }
-};
-
-// Initialize sample data if tables are empty
+// Initialize sample data if database is empty
 const initializeSampleData = async () => {
   try {
-    console.log('🔄 Initializing sample data in Supabase...');
+    console.log('🔄 Initializing sample data in IndexedDB...');
 
-    // Check if we have any data in the tables
-    const [guruCount, siswaCount, settingsCount] = await Promise.all([
-      supabase.from(TABLES.GURU).select('*', { count: 'exact', head: true }),
-      supabase.from(TABLES.SISWA).select('*', { count: 'exact', head: true }),
-      supabase.from(TABLES.ATTENDANCE_SETTINGS).select('*', { count: 'exact', head: true })
-    ]);
+    // Check if we have any data
+    const guruCount = await db.guru.count();
+    const siswaCount = await db.siswa.count();
+    const settingsCount = await db.attendance_settings.count();
 
-    console.log('📊 Table counts:', { guruCount: guruCount.count, siswaCount: siswaCount.count, settingsCount: settingsCount.count });
+    console.log('📊 Current database counts:', { guruCount, siswaCount, settingsCount });
 
     const promises = [];
 
     // Add sample guru if empty
-    if ((guruCount.count || 0) === 0) {
+    if (guruCount === 0) {
       const sampleGuru = [
-        { nama: 'Ahmad Santoso', niy: 'G001', jabatan: 'Guru Matematika', sebagai: 'Guru', email: 'ahmad@school.com', wa: '08123456789', status: 'active' },
-        { nama: 'Siti Aminah', niy: 'G002', jabatan: 'Guru Bahasa Indonesia', sebagai: 'Guru', email: 'siti@school.com', wa: '08198765432', status: 'active' },
-        { nama: 'Budi Setiawan', niy: 'G003', jabatan: 'Guru IPA', sebagai: 'Guru', email: 'budi@school.com', wa: '08134567890', status: 'active' }
+        { nama: 'Ahmad Santoso', niy: 'G001', jabatan: 'Guru Matematika', sebagai: 'Guru', email: 'ahmad@school.com', wa: '08123456789', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { nama: 'Siti Aminah', niy: 'G002', jabatan: 'Guru Bahasa Indonesia', sebagai: 'Guru', email: 'siti@school.com', wa: '08198765432', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { nama: 'Budi Setiawan', niy: 'G003', jabatan: 'Guru IPA', sebagai: 'Guru', email: 'budi@school.com', wa: '08134567890', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
       ];
-      promises.push(DatabaseService.bulkCreate(TABLES.GURU, sampleGuru));
+      promises.push(db.guru.bulkAdd(sampleGuru));
     }
 
     // Add sample siswa if empty
-    if ((siswaCount.count || 0) === 0) {
+    if (siswaCount === 0) {
       const sampleSiswa = [
-        { nama: 'Rina Sari', nisn: 'S001', jabatan: 'Kelas 10A', sebagai: 'Siswa', email: 'rina@school.com', wa: '08111111111', status: 'active' },
-        { nama: 'Dedi Kurniawan', nisn: 'S002', jabatan: 'Kelas 10A', sebagai: 'Siswa', email: 'dedi@school.com', wa: '08122222222', status: 'active' },
-        { nama: 'Maya Putri', nisn: 'S003', jabatan: 'Kelas 10B', sebagai: 'Siswa', email: 'maya@school.com', wa: '08133333333', status: 'active' },
-        { nama: 'Andi Rahman', nisn: 'S004', jabatan: 'Kelas 10B', sebagai: 'Siswa', email: 'andi@school.com', wa: '08144444444', status: 'active' },
-        { nama: 'Sari Dewi', nisn: 'S005', jabatan: 'Kelas 11A', sebagai: 'Siswa', email: 'sari@school.com', wa: '08155555555', status: 'active' }
+        { nama: 'Rina Sari', nisn: 'S001', jabatan: 'Kelas 10A', sebagai: 'Siswa', email: 'rina@school.com', wa: '08111111111', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { nama: 'Dedi Kurniawan', nisn: 'S002', jabatan: 'Kelas 10A', sebagai: 'Siswa', email: 'dedi@school.com', wa: '08122222222', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { nama: 'Maya Putri', nisn: 'S003', jabatan: 'Kelas 10B', sebagai: 'Siswa', email: 'maya@school.com', wa: '08133333333', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { nama: 'Andi Rahman', nisn: 'S004', jabatan: 'Kelas 10B', sebagai: 'Siswa', email: 'andi@school.com', wa: '08144444444', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { nama: 'Sari Dewi', nisn: 'S005', jabatan: 'Kelas 11A', sebagai: 'Siswa', email: 'sari@school.com', wa: '08155555555', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
       ];
-      promises.push(DatabaseService.bulkCreate(TABLES.SISWA, sampleSiswa));
+      promises.push(db.siswa.bulkAdd(sampleSiswa));
     }
 
     // Add default attendance settings if empty
-    if ((settingsCount.count || 0) === 0) {
+    if (settingsCount === 0) {
       const defaultSettings = [
-        { type: 'guru', start_time: '06:00', end_time: '07:30', att: 'Datang', label: 'Tepat Waktu' },
-        { type: 'guru', start_time: '07:30', end_time: '08:00', att: 'Datang', label: 'Tahap 1' },
-        { type: 'guru', start_time: '08:00', end_time: '15:00', att: 'Datang', label: 'Tahap 2' },
-        { type: 'guru', start_time: '15:00', end_time: '17:00', att: 'Pulang', label: 'Pulang' },
-        { type: 'siswa', start_time: '06:00', end_time: '07:30', att: 'Datang', label: 'Tepat Waktu' },
-        { type: 'siswa', start_time: '07:30', end_time: '08:00', att: 'Datang', label: 'Tahap 1' },
-        { type: 'siswa', start_time: '08:00', end_time: '12:00', att: 'Datang', label: 'Tahap 2' },
-        { type: 'siswa', start_time: '12:00', end_time: '17:00', att: 'Pulang', label: 'Pulang' }
+        { type: 'guru', start_time: '06:00', end_time: '07:30', att: 'Datang', label: 'Tepat Waktu', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { type: 'guru', start_time: '07:30', end_time: '08:00', att: 'Datang', label: 'Tahap 1', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { type: 'guru', start_time: '08:00', end_time: '15:00', att: 'Datang', label: 'Tahap 2', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { type: 'guru', start_time: '15:00', end_time: '17:00', att: 'Pulang', label: 'Pulang', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { type: 'siswa', start_time: '06:00', end_time: '07:30', att: 'Datang', label: 'Tepat Waktu', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { type: 'siswa', start_time: '07:30', end_time: '08:00', att: 'Datang', label: 'Tahap 1', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { type: 'siswa', start_time: '08:00', end_time: '12:00', att: 'Datang', label: 'Tahap 2', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { type: 'siswa', start_time: '12:00', end_time: '17:00', att: 'Pulang', label: 'Pulang', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
       ];
-      promises.push(DatabaseService.bulkCreate(TABLES.ATTENDANCE_SETTINGS, defaultSettings));
+      promises.push(db.attendance_settings.bulkAdd(defaultSettings));
     }
 
     // Add default school settings if empty
-    const { data: schoolSettings } = await supabase
-      .from(TABLES.SCHOOL_SETTINGS)
-      .select('*')
-      .limit(1);
-
-    if (!schoolSettings || schoolSettings.length === 0) {
+    const schoolSettingsCount = await db.school_settings.count();
+    if (schoolSettingsCount === 0) {
       const defaultSchoolSettings = {
         nama_sekolah: 'SMA Negeri 1 Makassar',
         npsn: '40300123',
@@ -632,19 +79,27 @@ const initializeSampleData = async () => {
         alamat_provinsi: 'Sulawesi Selatan',
         alamat_negara: 'Indonesia',
         nama_kepala_sekolah: 'Dr. H. Ahmad Yani, M.Pd.',
-        niy_kepala_sekolah: '197001011990011001'
+        niy_kepala_sekolah: '197001011990011001',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
-      promises.push(DatabaseService.create(TABLES.SCHOOL_SETTINGS, defaultSchoolSettings));
+      promises.push(db.school_settings.add(defaultSchoolSettings));
     }
 
     await Promise.all(promises);
-    console.log('✅ Sample data initialized in Supabase');
+    console.log('✅ Sample data initialized in IndexedDB');
+
   } catch (error) {
     console.error('❌ Error initializing sample data:', error);
   }
 };
 
 // Initialize sample data when module loads
-initializeSampleData();
+db.open().then(() => {
+  console.log('📱 IndexedDB database opened successfully');
+  initializeSampleData();
+}).catch(error => {
+  console.error('❌ Error opening IndexedDB:', error);
+});
 
 export default db;

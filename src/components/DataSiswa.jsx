@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem } from '@mui/material';
+import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, TablePagination, InputAdornment } from '@mui/material';
+import { Search as SearchIcon } from '@mui/icons-material';
 import QRCode from 'qrcode';
 import { db } from '../database';
 
@@ -14,7 +15,12 @@ const DataSiswa = ({ mode }) => {
   const [exitDialog, setExitDialog] = useState(false);
   const [exitForm, setExitForm] = useState({ alasan: '', tanggal_keluar: '' });
   const [classFilter, setClassFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [filteredData, setFilteredData] = useState([]);
+
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
   useEffect(() => {
     db.siswa.where('status').equals('active').sortBy('nama').then(siswaData => {
@@ -24,12 +30,27 @@ const DataSiswa = ({ mode }) => {
   }, []);
 
   useEffect(() => {
+    let filtered = data;
+
+    // Apply class filter
     if (classFilter) {
-      setFilteredData(data.filter(item => item.jabatan === classFilter));
-    } else {
-      setFilteredData(data);
+      filtered = filtered.filter(item => item.jabatan === classFilter);
     }
-  }, [classFilter, data]);
+
+    // Apply search filter
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(item =>
+        item.nama?.toLowerCase().includes(searchLower) ||
+        item.nisn?.toLowerCase().includes(searchLower) ||
+        item.jabatan?.toLowerCase().includes(searchLower) ||
+        item.email?.toLowerCase().includes(searchLower) ||
+        item.wa?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    setFilteredData(filtered);
+  }, [classFilter, searchTerm, data]);
 
   const handleOpen = (item = null) => {
     setEditing(item);
@@ -128,6 +149,20 @@ const DataSiswa = ({ mode }) => {
       </Typography>
       <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
         <TextField
+          label="🔍 Cari Siswa"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Cari nama, NISN, kelas, email..."
+          sx={{ minWidth: 250 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          }}
+        />
+        <TextField
           select
           label="Filter Kelas"
           value={classFilter}
@@ -140,7 +175,7 @@ const DataSiswa = ({ mode }) => {
           ))}
         </TextField>
       </Box>
-      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+      <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
@@ -158,29 +193,47 @@ const DataSiswa = ({ mode }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredData.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell padding="checkbox">
-                  <input type="checkbox" checked={selected.includes(row.id)} onChange={() => handleSelect(row.id)} />
-                </TableCell>
-                <TableCell>{row.nama}</TableCell>
-                <TableCell>{row.nisn}</TableCell>
-                <TableCell>{row.jabatan}</TableCell>
-                <TableCell>{row.sebagai}</TableCell>
-                <TableCell>{row.email}</TableCell>
-                <TableCell>{row.wa}</TableCell>
-                <TableCell>
-                  <Button onClick={() => handleOpen(row)}>Edit</Button>
-                  <Button onClick={() => handleDelete(row.id)}>Delete</Button>
-                </TableCell>
-                <TableCell>
-                  <Button onClick={() => handleGenerateQR(row.nisn)}>Generate QR</Button>
-                </TableCell>
-              </TableRow>
-            ))}
+            {filteredData
+              .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+              .map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell padding="checkbox">
+                    <input type="checkbox" checked={selected.includes(row.id)} onChange={() => handleSelect(row.id)} />
+                  </TableCell>
+                  <TableCell>{row.nama}</TableCell>
+                  <TableCell>{row.nisn}</TableCell>
+                  <TableCell>{row.jabatan}</TableCell>
+                  <TableCell>{row.sebagai}</TableCell>
+                  <TableCell>{row.email}</TableCell>
+                  <TableCell>{row.wa}</TableCell>
+                  <TableCell>
+                    <Button onClick={() => handleOpen(row)}>Edit</Button>
+                    <Button onClick={() => handleDelete(row.id)}>Delete</Button>
+                  </TableCell>
+                  <TableCell>
+                    <Button onClick={() => handleGenerateQR(row.nisn)}>Generate QR</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={filteredData.length}
+        page={page}
+        onPageChange={(event, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(event) => {
+          setRowsPerPage(parseInt(event.target.value, 10));
+          setPage(0);
+        }}
+        rowsPerPageOptions={[10, 20, 50, 100]}
+        labelRowsPerPage="Baris per halaman:"
+        labelDisplayedRows={({ from, to, count }) =>
+          `${from}-${to} dari ${count !== -1 ? count : `lebih dari ${to}`}`
+        }
+      />
       <Dialog open={open} onClose={handleClose}>
         <DialogTitle>{editing ? 'Edit' : 'Add'} Siswa</DialogTitle>
         <DialogContent>

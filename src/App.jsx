@@ -22,13 +22,24 @@ import Penggajian from './components/Penggajian';
 import Scan from './components/Scan';
 import IzinForm from './components/IzinForm';
 import RekapAbsen from './components/RekapAbsen';
+import RekapLengkap from './components/RekapLengkap';
 import SiGesit from './components/SiGesit';
+import SiSantuy from './components/SiSantuy';
+import BintangKu from './components/BintangKu';
+import SiGesitStandalone from './components/SiGesitStandalone';
+import SiSantuyStandalone from './components/SiSantuyStandalone';
 
 const drawerWidth = 240;
 
 const theme = createTheme({
   palette: {
     mode: 'light',
+    primary: {
+      main: '#36aec1',
+    },
+    secondary: {
+      main: '#2d9aa8',
+    },
   },
 });
 
@@ -36,8 +47,11 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mode, setMode] = useState('Admin');
 
-  // Check if current route is scan mode or izin form (full screen)
-  const isScanMode = window.location.pathname.startsWith('/scan') || window.location.pathname.startsWith('/izin');
+  // Check if current route is scan mode, izin form, or standalone (full screen)
+  const isScanMode = window.location.pathname.startsWith('/scan') ||
+                     window.location.pathname.startsWith('/izin') ||
+                     window.location.pathname.startsWith('/si-gesit-standalone') ||
+                     window.location.pathname.startsWith('/si-santuy-standalone');
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -52,7 +66,8 @@ function App() {
     { text: 'Database', icon: <StorageIcon />, path: '/database' },
     { text: 'Absensi', icon: <EventNoteIcon />, path: '/absensi' },
     { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen' },
-    { text: 'Si Gesit', icon: <StarIcon />, path: '/si-gesit' },
+    { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap' },
+    { text: 'BintangKu', icon: <StarIcon />, path: '/bintangku' },
     { text: 'Data Guru', icon: <SchoolIcon />, path: '/data-guru' },
     { text: 'Data Siswa', icon: <PersonIcon />, path: '/data-siswa' },
     { text: 'Data Mutasi', icon: <EventNoteIcon />, path: '/data-mutasi' },
@@ -63,7 +78,7 @@ function App() {
     <div>
       <Toolbar>
         <Typography variant="h6" noWrap component="div">
-          Absensi App
+          INGAT WAKTU
         </Typography>
       </Toolbar>
       <List>
@@ -86,10 +101,12 @@ function App() {
       <CssBaseline />
       <Router>
         {isScanMode ? (
-          // Full screen mode - no sidebar, no appbar (for scan and izin form)
+          // Full screen mode - no sidebar, no appbar (for scan, izin form, and standalone)
           <Routes>
             <Route path="/scan" element={<Scan />} />
             <Route path="/izin" element={<IzinForm mode="Standalone" />} />
+            <Route path="/si-gesit-standalone" element={<SiGesitStandalone />} />
+            <Route path="/si-santuy-standalone" element={<SiSantuyStandalone />} />
           </Routes>
         ) : (
           // Normal app layout with sidebar and appbar
@@ -112,7 +129,7 @@ function App() {
                   <MenuIcon />
                 </IconButton>
                 <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-                  Absensi Barcode
+                  INGAT WAKTU
                 </Typography>
                 <FormControl size="small">
                   <Select
@@ -169,7 +186,10 @@ function App() {
                 <Route path="/database" element={<Database mode={mode} />} />
                 <Route path="/absensi" element={<Absensi mode={mode} />} />
                 <Route path="/rekap-absen" element={<RekapAbsen mode={mode} />} />
+                <Route path="/rekap-lengkap" element={<RekapLengkap mode={mode} />} />
+                <Route path="/bintangku" element={<BintangKu mode={mode} />} />
                 <Route path="/si-gesit" element={<SiGesit mode={mode} />} />
+                <Route path="/si-santuy" element={<SiSantuy mode={mode} />} />
                 <Route path="/data-guru" element={<DataGuru mode={mode} />} />
                 <Route path="/data-siswa" element={<DataSiswa mode={mode} />} />
                 <Route path="/data-mutasi" element={<DataMutasi mode={mode} />} />

@@ -59,8 +59,8 @@ export default defineConfig({
   },
   // Define environment variables for build
   define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
-    __SUPABASE_URL__: JSON.stringify(process.env.VITE_SUPABASE_URL || 'https://localhost:3000'),
-    __SUPABASE_ANON_KEY__: JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY || 'dummy-key')
+    __APP_VERSION__: JSON.stringify('1.0.0'),
+    __SUPABASE_URL__: JSON.stringify(import.meta.env?.VITE_SUPABASE_URL || 'https://localhost:3000'),
+    __SUPABASE_ANON_KEY__: JSON.stringify(import.meta.env?.VITE_SUPABASE_ANON_KEY || 'dummy-key')
   }
 })

@@ -20,7 +20,8 @@ import {
   Select,
   MenuItem,
   IconButton,
-  Checkbox
+  Checkbox,
+  TablePagination
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -32,6 +33,10 @@ const DataPerizinan = ({ mode }) => {
   const [editDialog, setEditDialog] = useState(false);
   const [editingPerizinan, setEditingPerizinan] = useState(null);
   const [selectedPerizinan, setSelectedPerizinan] = useState([]);
+
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
   useEffect(() => {
     // Register global refresh function
@@ -181,7 +186,7 @@ const DataPerizinan = ({ mode }) => {
         </Box>
       </Box>
 
-      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+      <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
@@ -204,44 +209,46 @@ const DataPerizinan = ({ mode }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {perizinanData.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selectedPerizinan.includes(row.id)}
-                    onChange={() => handleSelectPerizinan(row.id)}
-                  />
-                </TableCell>
-                <TableCell>{row.tanggal}</TableCell>
-                <TableCell>{row.tanggal_mulai || row.tanggal}</TableCell>
-                <TableCell>{row.tanggal_selesai || row.tanggal}</TableCell>
-                <TableCell>{row.nama}</TableCell>
-                <TableCell>{row.identifier}</TableCell>
-                <TableCell>{row.sebagai}</TableCell>
-                <TableCell>{row.jenis_izin}</TableCell>
-                <TableCell>{row.keterangan}</TableCell>
-                <TableCell>
-                  <IconButton
-                    size="small"
-                    color="primary"
-                    onClick={() => handleEditPerizinan(row)}
-                    sx={{ mr: 1 }}
-                  >
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => handleDeletePerizinan(row.id)}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
+            {perizinanData
+              .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+              .map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selectedPerizinan.includes(row.id)}
+                      onChange={() => handleSelectPerizinan(row.id)}
+                    />
+                  </TableCell>
+                  <TableCell>{row.tanggal}</TableCell>
+                  <TableCell>{row.tanggal_mulai || row.tanggal}</TableCell>
+                  <TableCell>{row.tanggal_selesai || row.tanggal}</TableCell>
+                  <TableCell>{row.nama}</TableCell>
+                  <TableCell>{row.identifier}</TableCell>
+                  <TableCell>{row.sebagai}</TableCell>
+                  <TableCell>{row.jenis_izin}</TableCell>
+                  <TableCell>{row.keterangan}</TableCell>
+                  <TableCell>
+                    <IconButton
+                      size="small"
+                      color="primary"
+                      onClick={() => handleEditPerizinan(row)}
+                      sx={{ mr: 1 }}
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => handleDeletePerizinan(row.id)}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
             {perizinanData.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
                   <Typography variant="body2" color="text.secondary">
                     Belum ada data perizinan
                   </Typography>
@@ -251,6 +258,22 @@ const DataPerizinan = ({ mode }) => {
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={perizinanData.length}
+        page={page}
+        onPageChange={(event, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(event) => {
+          setRowsPerPage(parseInt(event.target.value, 10));
+          setPage(0);
+        }}
+        rowsPerPageOptions={[10, 20, 50, 100]}
+        labelRowsPerPage="Baris per halaman:"
+        labelDisplayedRows={({ from, to, count }) =>
+          `${from}-${to} dari ${count !== -1 ? count : `lebih dari ${to}`}`
+        }
+      />
 
       {/* Edit Dialog */}
       <Dialog open={editDialog} onClose={handleCloseEditDialog} maxWidth="sm" fullWidth>

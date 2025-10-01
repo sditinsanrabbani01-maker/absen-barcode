@@ -91,11 +91,11 @@ const Dashboard = ({ mode }) => {
         boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
       }}>
         <Box sx={{ textAlign: 'center', flex: 1 }}>
-          <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+          <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#36aec1' }}>
             Dashboard - Mode: {mode}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Sistem Absensi Barcode - Ringkasan Data Real-time
+            Sistem INGAT WAKTU - Ringkasan Data Real-time
           </Typography>
         </Box>
         <Button
@@ -103,11 +103,11 @@ const Dashboard = ({ mode }) => {
           startIcon={<SettingsIcon />}
           onClick={() => setSettingsOpen(true)}
           sx={{
-            borderColor: '#1976d2',
-            color: '#1976d2',
+            borderColor: '#36aec1',
+            color: '#36aec1',
             '&:hover': {
-              borderColor: '#1565c0',
-              backgroundColor: '#e3f2fd'
+              borderColor: '#2d9aa8',
+              backgroundColor: '#e0f7fa'
             }
           }}
         >
@@ -193,7 +193,7 @@ const Dashboard = ({ mode }) => {
       </Grid>
 
       <Box sx={{ mt: 4, backgroundColor: 'white', p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold', color: '#1976d2' }}>
+        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold', color: '#36aec1' }}>
           📊 Quick Stats Summary
         </Typography>
         <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -212,7 +212,7 @@ const Dashboard = ({ mode }) => {
 
       {/* School Settings Dialog */}
       <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ backgroundColor: '#1976d2', color: 'white' }}>
+        <DialogTitle sx={{ backgroundColor: '#36aec1', color: 'white', fontWeight: 'bold' }}>
           🏫 Pengaturan Identitas Sekolah
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
@@ -233,7 +233,7 @@ const Dashboard = ({ mode }) => {
               placeholder="Contoh: 40300123"
             />
 
-            <Typography variant="h6" sx={{ mt: 2, mb: 1, color: '#1976d2' }}>
+            <Typography variant="h6" sx={{ mt: 2, mb: 1, color: '#36aec1' }}>
               📍 Alamat Lengkap
             </Typography>
 
@@ -329,7 +329,7 @@ const Dashboard = ({ mode }) => {
               </Select>
             </FormControl>
 
-            <Typography variant="h6" sx={{ mt: 2, mb: 1, color: '#1976d2' }}>
+            <Typography variant="h6" sx={{ mt: 2, mb: 1, color: '#36aec1' }}>
               👨‍🏫 Kepala Sekolah
             </Typography>
 

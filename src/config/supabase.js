@@ -505,12 +505,14 @@ export class DatabaseService {
       const { data, error } = await query.order('nama', { ascending: true })
       if (error) {
         console.error('❌ Error getting guru from Supabase:', error)
+        console.log('🔄 Error details:', error.message, error.details)
         // Fallback to local data if Supabase fails
         console.log('🔄 Falling back to local data...')
         const { db } = await import('../database.js');
         return await db.guru.toArray();
       }
-      console.log('✅ Got guru data:', data?.length || 0, 'records')
+      console.log('✅ Got guru data from Supabase:', data?.length || 0, 'records')
+      console.log('📋 Sample records:', data?.slice(0, 3))
       return data || []
     } catch (err) {
       console.error('❌ Supabase connection failed, using local data:', err)

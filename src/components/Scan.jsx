@@ -264,7 +264,7 @@ const Scan = () => {
 ✅ Anda telah berhasil *ABSEN*
 📅 Tanggal : ${today}
 🕒 Pukul : ${currentTime}
-📌 Status : ${att}
+📌 Status : ${status}
 📝 Keterangan : ${keterangan}
 
 Terima kasih atas perhatian Anda 🙏`;

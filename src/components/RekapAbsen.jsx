@@ -733,55 +733,142 @@ const RekapAbsen = ({ mode }) => {
     const dateStr = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
 
     try {
-      // Remove existing attendance record for this person and date
-      await db.attendance.where('[identifier+tanggal]').equals([person.identifier, dateStr]).delete();
+      // Check if there's already an attendance record for this person and date
+      const existingAttendance = await db.attendance.where('[identifier+tanggal]').equals([person.identifier, dateStr]).first();
 
-      // Remove existing perizinan record for this person and date
+      // Check if there's already a perizinan record for this person and date
       const existingPerizinan = await db.perizinan.where('[identifier+tanggal]').equals([person.identifier, dateStr]).first();
-      if (existingPerizinan) {
-        await db.perizinan.delete(existingPerizinan.id);
-      }
 
-      // Add new record based on status
-      if (newStatus !== 'TK' && newStatus !== '') {
-        if (['DL', 'I', 'S'].includes(newStatus)) {
-          // Add to perizinan table
-          const jenisIzin = newStatus === 'DL' ? 'Dinas Luar' :
-                           newStatus === 'I' ? 'Izin' : 'Sakit';
+      if (newStatus === 'TK' || newStatus === '') {
+        // TK = delete existing records (since TK means empty/absent)
+        if (existingAttendance) {
+          await db.attendance.delete(existingAttendance.id);
+        }
+        if (existingPerizinan) {
+          await db.perizinan.delete(existingPerizinan.id);
+        }
+      } else {
+        // For other statuses, check if record already exists
+        if (existingAttendance || existingPerizinan) {
+          // If record exists, update it
+          if (['DL', 'I', 'S'].includes(newStatus)) {
+            // Remove attendance record if exists (switching to perizinan)
+            if (existingAttendance) {
+              await db.attendance.delete(existingAttendance.id);
+            }
 
-          await db.perizinan.add({
-            tanggal: dateStr,
-            tanggal_mulai: dateStr, // Single day for manual entries
-            tanggal_selesai: dateStr,
-            identifier: person.identifier,
-            nama: person.nama,
-            jabatan: person.jabatan,
-            sebagai: person.sebagai,
-            jenis_izin: jenisIzin,
-            keterangan: `Updated via Rekap Absen - ${jenisIzin}`,
-            wa: person.wa || '',
-            email: person.email || ''
-          });
+            // Update or create perizinan record
+            const jenisIzin = newStatus === 'DL' ? 'Dinas Luar' :
+                             newStatus === 'I' ? 'Izin' : 'Sakit';
+
+            if (existingPerizinan) {
+              await db.perizinan.update(existingPerizinan.id, {
+                jenis_izin: jenisIzin,
+                keterangan: `Updated via Rekap Absen - ${jenisIzin}`
+              });
+            } else {
+              await db.perizinan.add({
+                tanggal: dateStr,
+                tanggal_mulai: dateStr,
+                tanggal_selesai: dateStr,
+                identifier: person.identifier,
+                nama: person.nama,
+                jabatan: person.jabatan,
+                sebagai: person.sebagai,
+                jenis_izin: jenisIzin,
+                keterangan: `Updated via Rekap Absen - ${jenisIzin}`,
+                wa: person.wa || '',
+                email: person.email || ''
+              });
+            }
+          } else {
+            // Remove perizinan record if exists (switching to attendance)
+            if (existingPerizinan) {
+              await db.perizinan.delete(existingPerizinan.id);
+            }
+
+            // Update or create attendance record
+            const att = ['TW', 'T1', 'T2'].includes(newStatus) ? 'Datang' : 'Pulang';
+            const keterangan = newStatus === 'TW' ? 'Tepat Waktu' :
+                              newStatus === 'T1' ? 'Tahap 1' :
+                              newStatus === 'T2' ? 'Tahap 2' : 'Hadir';
+
+            // Calculate the latest possible time for TW/T1/T2
+            let jam = '00:00';
+            if (['TW', 'T1', 'T2'].includes(newStatus)) {
+              jam = getLatestTimeForStatus(newStatus, person.sebagai, person.jabatan);
+            }
+
+            if (existingAttendance) {
+              await db.attendance.update(existingAttendance.id, {
+                jam: jam,
+                status: newStatus,
+                keterangan: keterangan,
+                att: att
+              });
+            } else {
+              await db.attendance.add({
+                tanggal: dateStr,
+                identifier: person.identifier,
+                nama: person.nama,
+                jabatan: person.jabatan,
+                sebagai: person.sebagai,
+                jam: jam,
+                status: newStatus,
+                keterangan: keterangan,
+                att: att,
+                wa: person.wa || '',
+                email: person.email || ''
+              });
+            }
+          }
         } else {
-          // Add to attendance table
-          const att = ['TW', 'T1', 'T2'].includes(newStatus) ? 'Datang' : 'Pulang';
-          const keterangan = newStatus === 'TW' ? 'Tepat Waktu' :
-                            newStatus === 'T1' ? 'Tahap 1' :
-                            newStatus === 'T2' ? 'Tahap 2' : 'Hadir';
+          // No existing record, create new one
+          if (['DL', 'I', 'S'].includes(newStatus)) {
+            // Add to perizinan table
+            const jenisIzin = newStatus === 'DL' ? 'Dinas Luar' :
+                             newStatus === 'I' ? 'Izin' : 'Sakit';
 
-          await db.attendance.add({
-            tanggal: dateStr,
-            identifier: person.identifier,
-            nama: person.nama,
-            jabatan: person.jabatan,
-            sebagai: person.sebagai,
-            jam: '00:00', // Default time for manual entries
-            status: newStatus,
-            keterangan: keterangan,
-            att: att,
-            wa: person.wa || '',
-            email: person.email || ''
-          });
+            await db.perizinan.add({
+              tanggal: dateStr,
+              tanggal_mulai: dateStr,
+              tanggal_selesai: dateStr,
+              identifier: person.identifier,
+              nama: person.nama,
+              jabatan: person.jabatan,
+              sebagai: person.sebagai,
+              jenis_izin: jenisIzin,
+              keterangan: `Updated via Rekap Absen - ${jenisIzin}`,
+              wa: person.wa || '',
+              email: person.email || ''
+            });
+          } else {
+            // Add to attendance table with latest time for TW/T1/T2
+            const att = ['TW', 'T1', 'T2'].includes(newStatus) ? 'Datang' : 'Pulang';
+            const keterangan = newStatus === 'TW' ? 'Tepat Waktu' :
+                              newStatus === 'T1' ? 'Tahap 1' :
+                              newStatus === 'T2' ? 'Tahap 2' : 'Hadir';
+
+            // Calculate the latest possible time for TW/T1/T2
+            let jam = '00:00';
+            if (['TW', 'T1', 'T2'].includes(newStatus)) {
+              jam = getLatestTimeForStatus(newStatus, person.sebagai, person.jabatan);
+            }
+
+            await db.attendance.add({
+              tanggal: dateStr,
+              identifier: person.identifier,
+              nama: person.nama,
+              jabatan: person.jabatan,
+              sebagai: person.sebagai,
+              jam: jam,
+              status: newStatus,
+              keterangan: keterangan,
+              att: att,
+              wa: person.wa || '',
+              email: person.email || ''
+            });
+          }
         }
       }
 
@@ -799,6 +886,46 @@ const RekapAbsen = ({ mode }) => {
       console.error('Error updating attendance status:', error);
       alert('Gagal mengupdate status absensi: ' + error.message);
     }
+  };
+
+  const getLatestTimeForStatus = (status, personType, personJabatan) => {
+    // Get the latest possible time for TW/T1/T2 based on attendance settings
+
+    // First, check for jabatan-specific settings
+    const jabatanSettings = attendanceSettings.filter(setting =>
+      setting.type === 'jabatan' && setting.jabatan === personJabatan
+    );
+
+    if (jabatanSettings.length > 0) {
+      // Use jabatan-specific settings
+      for (const setting of jabatanSettings) {
+        const label = setting.label.toLowerCase().replace(' ', '');
+        if ((status === 'TW' && label === 'tepatwaktu') ||
+            (status === 'T1' && label === 'tahap1') ||
+            (status === 'T2' && label === 'tahap2')) {
+          return setting.end_time;
+        }
+      }
+    }
+
+    // Fall back to general guru/siswa settings
+    const relevantSettings = attendanceSettings.filter(setting => setting.type === personType);
+
+    for (const setting of relevantSettings) {
+      const label = setting.label.toLowerCase().replace(' ', '');
+      if ((status === 'TW' && label === 'tepatwaktu') ||
+          (status === 'T1' && label === 'tahap1') ||
+          (status === 'T2' && label === 'tahap2')) {
+        return setting.end_time;
+      }
+    }
+
+    // Default fallback times if no settings found
+    if (status === 'TW') return '07:30'; // Latest for TW
+    if (status === 'T1') return '08:00'; // Latest for T1
+    if (status === 'T2') return '12:00'; // Latest for T2
+
+    return '00:00';
   };
 
   const handleClosePopover = () => {

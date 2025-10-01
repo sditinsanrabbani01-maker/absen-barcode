@@ -20,7 +20,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper
+  Paper,
+  TablePagination
 } from '@mui/material';
 import { Star, EmojiEvents, TrendingUp, AccessTime } from '@mui/icons-material';
 import { db } from '../database';
@@ -35,6 +36,10 @@ const SiGesit = ({ mode }) => {
   const [endMonth, setEndMonth] = useState(new Date().getMonth() + 1); // Current month (1-indexed)
   const [endYear, setEndYear] = useState(new Date().getFullYear());
   const [activeSchoolDays, setActiveSchoolDays] = useState(0);
+
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
   const months = [
     { value: 1, label: 'Januari' },
@@ -62,8 +67,13 @@ const SiGesit = ({ mode }) => {
       const startDate = new Date(startYear, startMonth - 1, 1);
       const endDate = new Date(endYear, endMonth, 0); // Last day of end month
 
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
+      // Use local date formatting to avoid timezone conversion issues
+      const startDateStr = startDate.getFullYear() + '-' +
+        String(startDate.getMonth() + 1).padStart(2, '0') + '-' +
+        String(startDate.getDate()).padStart(2, '0');
+      const endDateStr = endDate.getFullYear() + '-' +
+        String(endDate.getMonth() + 1).padStart(2, '0') + '-' +
+        String(endDate.getDate()).padStart(2, '0');
 
       // Get all attendance records for the period
       const attendanceRecords = await db.attendance
@@ -112,7 +122,7 @@ const SiGesit = ({ mode }) => {
           record.identifier === identifier
         );
 
-        // Count attendance types
+        // Count attendance types - UPDATED: only count "Datang" statuses for TW/T1/T2
         let tepatWaktu = 0;
         let tahap1 = 0;
         let tahap2 = 0;
@@ -120,24 +130,73 @@ const SiGesit = ({ mode }) => {
         let dinasLuar = 0;
         let izin = 0;
         let sakit = 0;
+        let cuti = 0; // New: Cuti status
         let tanpaKeterangan = 0;
 
-        // Count attendance records
+        // Group attendance records by date to check for each day
+        const attendanceByDate = {};
         personAttendance.forEach(record => {
-          const status = record.status;
-          if (status === 'TW') tepatWaktu++;
-          else if (status === 'T1') tahap1++;
-          else if (status === 'T2') tahap2++;
-          else if (status === 'H') hadir++;
+          const date = record.tanggal;
+          if (!attendanceByDate[date]) {
+            attendanceByDate[date] = { datang: null, pulang: null };
+          }
+
+          if (record.att === 'Datang') {
+            attendanceByDate[date].datang = record;
+          } else if (record.att === 'Pulang') {
+            attendanceByDate[date].pulang = record;
+          }
         });
 
-        // Count perizinan records
+        // Count attendance records - only "Datang" statuses count as TW/T1/T2
+        // If someone only has "Pulang" without "Datang", count as TK
+        Object.values(attendanceByDate).forEach(dayRecords => {
+          if (dayRecords.datang) {
+            // Has "Datang" record - count the quality metrics
+            const status = dayRecords.datang.status;
+            if (status === 'TW') tepatWaktu++;
+            else if (status === 'T1') tahap1++;
+            else if (status === 'T2') tahap2++;
+            else if (status === 'H') hadir++;
+          } else if (dayRecords.pulang) {
+            // Only has "Pulang" without "Datang" - count as TK
+            tanpaKeterangan++;
+          }
+          // If no records at all for this date, it will be counted as TK in the next section
+        });
+
+        // Count perizinan records - UPDATED: add Cuti
         personPerizinan.forEach(record => {
           const jenisIzin = (record.jenis_izin || '').toLowerCase().trim();
           if (jenisIzin === 'dinas luar') dinasLuar++;
           else if (jenisIzin === 'izin') izin++;
           else if (jenisIzin === 'sakit') sakit++;
+          else if (jenisIzin === 'cuti') cuti++; // New: Cuti
           else tanpaKeterangan++;
+        });
+
+        // Count TK from attendance records with unknown status - same as RekapAbsen
+        personAttendance.forEach(record => {
+          const statusLower = record.status?.toLowerCase();
+          if (!['tw', 't1', 't2', 'h', 'i', 's'].includes(statusLower) &&
+              !['datang', 'hadir', 'present', 'masuk', 'izin', 'sakit'].includes(statusLower)) {
+            tanpaKeterangan++;
+          }
+        });
+
+        // Count TK for active school days with no attendance or perizinan records
+        // Only count absences on days when school was actually active (someone attended)
+        const attendanceDateSet = new Set(personAttendance.map(r => r.tanggal));
+        const perizinanDateSet = new Set(personPerizinan.map(r => r.tanggal));
+
+        // Only count TK for days that are in the active school days set
+        uniqueDates.forEach(activeDate => {
+          const hasAttendance = attendanceDateSet.has(activeDate);
+          const hasPerizinan = perizinanDateSet.has(activeDate);
+
+          if (!hasAttendance && !hasPerizinan) {
+            tanpaKeterangan++;
+          }
         });
 
         // Calculate unique present days (each day counts as 1, regardless of multiple records)
@@ -184,7 +243,7 @@ const SiGesit = ({ mode }) => {
         let performanceColor = 'success'; // Green - perfect
         if (tahap2 > 0) performanceColor = 'grey'; // Has T2
         else if (tahap1 > 0) performanceColor = 'warning'; // Has T1
-        else if (tanpaKeterangan > 2 || izin > 3 || sakit > 3) performanceColor = 'error'; // Many absences
+        else if (tanpaKeterangan > 2 || izin > 3 || sakit > 3 || cuti > 3) performanceColor = 'error'; // Many absences
 
         return {
           identifier,
@@ -222,8 +281,8 @@ const SiGesit = ({ mode }) => {
         }
 
         // Tiebreaker 2: fewer absences (lower is better)
-        const aAbsences = a.attendance.izin + a.attendance.sakit + a.attendance.tanpaKeterangan;
-        const bAbsences = b.attendance.izin + b.attendance.sakit + b.attendance.tanpaKeterangan;
+        const aAbsences = a.attendance.izin + a.attendance.sakit + a.attendance.cuti + a.attendance.tanpaKeterangan;
+        const bAbsences = b.attendance.izin + b.attendance.sakit + b.attendance.cuti + b.attendance.tanpaKeterangan;
         if (aAbsences !== bAbsences) {
           return aAbsences - bAbsences; // Lower absences first
         }
@@ -539,44 +598,68 @@ const SiGesit = ({ mode }) => {
                         📊 Rincian Kehadiran
                       </Typography>
                       <Grid container spacing={1} sx={{ textAlign: 'center' }}>
-                        <Grid item xs={2.4}>
-                          <Typography variant="caption" color="success.main" sx={{ fontWeight: 'bold' }}>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="success.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
                             TW
                           </Typography>
-                          <Typography variant="h6" color="success.main">
+                          <Typography variant="h6" color="success.main" sx={{ fontSize: '1rem' }}>
                             {person.attendance?.tepatWaktu || 0}
                           </Typography>
                         </Grid>
-                        <Grid item xs={2.4}>
-                          <Typography variant="caption" color="info.main" sx={{ fontWeight: 'bold' }}>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="info.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
                             DL
                           </Typography>
-                          <Typography variant="h6" color="info.main">
+                          <Typography variant="h6" color="info.main" sx={{ fontSize: '1rem' }}>
                             {person.attendance?.dinasLuar || 0}
                           </Typography>
                         </Grid>
-                        <Grid item xs={2.4}>
-                          <Typography variant="caption" color="warning.main" sx={{ fontWeight: 'bold' }}>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="warning.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
                             T1
                           </Typography>
-                          <Typography variant="h6" color="warning.main">
+                          <Typography variant="h6" color="warning.main" sx={{ fontSize: '1rem' }}>
                             {person.attendance?.tahap1 || 0}
                           </Typography>
                         </Grid>
-                        <Grid item xs={2.4}>
-                          <Typography variant="caption" color="grey.600" sx={{ fontWeight: 'bold' }}>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="grey.600" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
                             T2
                           </Typography>
-                          <Typography variant="h6" color="grey.600">
+                          <Typography variant="h6" color="grey.600" sx={{ fontSize: '1rem' }}>
                             {person.attendance?.tahap2 || 0}
                           </Typography>
                         </Grid>
-                        <Grid item xs={2.4}>
-                          <Typography variant="caption" color="error.main" sx={{ fontWeight: 'bold' }}>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="error.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
                             TK
                           </Typography>
-                          <Typography variant="h6" color="error.main">
+                          <Typography variant="h6" color="error.main" sx={{ fontSize: '1rem' }}>
                             {person.attendance?.tanpaKeterangan || 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="secondary.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
+                            S
+                          </Typography>
+                          <Typography variant="h6" color="secondary.main" sx={{ fontSize: '1rem' }}>
+                            {person.attendance?.sakit || 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="warning.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
+                            I
+                          </Typography>
+                          <Typography variant="h6" color="warning.main" sx={{ fontSize: '1rem' }}>
+                            {person.attendance?.izin || 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={1.5}>
+                          <Typography variant="caption" color="primary.main" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
+                            C
+                          </Typography>
+                          <Typography variant="h6" color="primary.main" sx={{ fontSize: '1rem' }}>
+                            {person.attendance?.cuti || 0}
                           </Typography>
                         </Grid>
                       </Grid>
@@ -623,7 +706,7 @@ const SiGesit = ({ mode }) => {
             📊 Perangkingan Lengkap
           </Typography>
 
-          <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+          <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
             <Table>
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.100' }}>
@@ -637,6 +720,7 @@ const SiGesit = ({ mode }) => {
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>TK</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>I</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>S</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>C</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Total Hadir</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Tingkat Hadir (%)</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Skor Rating</TableCell>
@@ -644,135 +728,161 @@ const SiGesit = ({ mode }) => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rankingData.map((person, index) => {
-                  const rank = index + 1;
-                  const stars = rank <= 5 ? Math.max(1, 6 - rank) : 0;
+                {rankingData
+                  .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                  .map((person, index) => {
+                    const actualRank = page * rowsPerPage + index + 1;
+                    const stars = actualRank <= 5 ? Math.max(1, 6 - actualRank) : 0;
 
-                  return (
-                    <TableRow
-                      key={person.identifier}
-                      sx={{
-                        bgcolor: person.performanceColor === 'success' ? 'rgba(76, 175, 80, 0.1)' :
-                                person.performanceColor === 'warning' ? 'rgba(255, 152, 0, 0.1)' :
-                                person.performanceColor === 'grey' ? 'rgba(158, 158, 158, 0.1)' :
-                                person.performanceColor === 'error' ? 'rgba(244, 67, 54, 0.1)' : 'inherit',
-                        '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' }
-                      }}
-                    >
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {rank <= 3 && (
-                            <Typography variant="h6">
-                              {getRankIcon(rank)}
+                    return (
+                      <TableRow
+                        key={person.identifier}
+                        sx={{
+                          bgcolor: person.performanceColor === 'success' ? 'rgba(76, 175, 80, 0.1)' :
+                                  person.performanceColor === 'warning' ? 'rgba(255, 152, 0, 0.1)' :
+                                  person.performanceColor === 'grey' ? 'rgba(158, 158, 158, 0.1)' :
+                                  person.performanceColor === 'error' ? 'rgba(244, 67, 54, 0.1)' : 'inherit',
+                          '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' }
+                        }}
+                      >
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {actualRank <= 3 && (
+                              <Typography variant="h6">
+                                {getRankIcon(actualRank)}
+                              </Typography>
+                            )}
+                            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                              #{actualRank}
                             </Typography>
-                          )}
-                          <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                            #{rank}
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 'medium' }}>
-                        {person.nama}
-                      </TableCell>
-                      <TableCell>{person.jabatan}</TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={person.attendance?.tepatWaktu || 0}
-                          color="success"
-                          size="small"
-                          variant={person.attendance?.tepatWaktu > 0 ? "filled" : "outlined"}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={person.attendance?.dinasLuar || 0}
-                          color="info"
-                          size="small"
-                          variant={person.attendance?.dinasLuar > 0 ? "filled" : "outlined"}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={person.attendance?.tahap1 || 0}
-                          color="warning"
-                          size="small"
-                          variant={person.attendance?.tahap1 > 0 ? "filled" : "outlined"}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={person.attendance?.tahap2 || 0}
-                          color="default"
-                          size="small"
-                          variant={person.attendance?.tahap2 > 0 ? "filled" : "outlined"}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={person.attendance?.tanpaKeterangan || 0}
-                          color="error"
-                          size="small"
-                          variant={person.attendance?.tanpaKeterangan > 0 ? "filled" : "outlined"}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={person.attendance?.izin || 0}
-                          color="warning"
-                          size="small"
-                          variant={person.attendance?.izin > 0 ? "filled" : "outlined"}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={person.attendance?.sakit || 0}
-                          color="secondary"
-                          size="small"
-                          variant={person.attendance?.sakit > 0 ? "filled" : "outlined"}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          {person.attendance?.totalPresentDays || 0}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            color: person.attendance?.attendancePercentage >= 90 ? 'success.main' :
-                                   person.attendance?.attendancePercentage >= 75 ? 'warning.main' : 'error.main',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          {person.attendance?.attendancePercentage?.toFixed(1) || 0}%
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontWeight: 'bold',
-                            color: person.ratingScore >= 500 ? 'success.main' :
-                                   person.ratingScore >= 300 ? 'warning.main' : 'error.main'
-                          }}
-                        >
-                          {person.ratingScore}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        {stars > 0 && (
-                          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                            {getStarRating(stars)}
                           </Box>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 'medium' }}>
+                          {person.nama}
+                        </TableCell>
+                        <TableCell>{person.jabatan}</TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.tepatWaktu || 0}
+                            color="success"
+                            size="small"
+                            variant={person.attendance?.tepatWaktu > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.dinasLuar || 0}
+                            color="info"
+                            size="small"
+                            variant={person.attendance?.dinasLuar > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.tahap1 || 0}
+                            color="warning"
+                            size="small"
+                            variant={person.attendance?.tahap1 > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.tahap2 || 0}
+                            color="default"
+                            size="small"
+                            variant={person.attendance?.tahap2 > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.tanpaKeterangan || 0}
+                            color="error"
+                            size="small"
+                            variant={person.attendance?.tanpaKeterangan > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.izin || 0}
+                            color="warning"
+                            size="small"
+                            variant={person.attendance?.izin > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.sakit || 0}
+                            color="secondary"
+                            size="small"
+                            variant={person.attendance?.sakit > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={person.attendance?.cuti || 0}
+                            color="primary"
+                            size="small"
+                            variant={person.attendance?.cuti > 0 ? "filled" : "outlined"}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                            {person.attendance?.totalPresentDays || 0}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              color: person.attendance?.attendancePercentage >= 90 ? 'success.main' :
+                                     person.attendance?.attendancePercentage >= 75 ? 'warning.main' : 'error.main',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {person.attendance?.attendancePercentage?.toFixed(1) || 0}%
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontWeight: 'bold',
+                              color: person.ratingScore >= 500 ? 'success.main' :
+                                     person.ratingScore >= 300 ? 'warning.main' : 'error.main'
+                            }}
+                          >
+                            {person.ratingScore}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {stars > 0 && (
+                            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                              {getStarRating(stars)}
+                            </Box>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePagination
+            component="div"
+            count={rankingData.length}
+            page={page}
+            onPageChange={(event, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(event) => {
+              setRowsPerPage(parseInt(event.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 20, 50, 100]}
+            labelRowsPerPage="Baris per halaman:"
+            labelDisplayedRows={({ from, to, count }) =>
+              `${from}-${to} dari ${count !== -1 ? count : `lebih dari ${to}`}`
+            }
+          />
         </>
       )}
 
@@ -790,7 +900,8 @@ const SiGesit = ({ mode }) => {
           </Typography>
           <Typography variant="body2" component="div">
             <strong>Periode:</strong> Dari tanggal 1 bulan mulai sampai akhir bulan sampai (berdasarkan hari aktif sekolah)<br/>
-            <strong>Hari Aktif Sekolah:</strong> Hari dimana ada minimal 1 orang yang mengisi absensi<br/>
+            <strong>Hari Aktif Sekolah:</strong> Hari dimana ada minimal 1 orang yang mengisi absensi atau dinas luar<br/>
+            <strong>Tanpa Keterangan (TK):</strong> Hanya dihitung pada hari aktif sekolah dimana orang tersebut tidak hadir dan tidak ada perizinan<br/>
             <strong>Sistem Rating Hierarki:</strong><br/>
             1️⃣ <strong>Paling banyak Tepat Waktu (TW)</strong> → Skor +100,000 per TW<br/>
             2️⃣ <strong>Paling sedikit Tahap 1 (T1)</strong> → Penalti -100 per T1 (lebih toleran)<br/>
@@ -803,14 +914,15 @@ const SiGesit = ({ mode }) => {
             • Urutan abjad nama<br/>
             <strong>Tingkat Kehadiran:</strong> (Total Hadir / Hari Aktif Sekolah) × 100%<br/>
             <strong>Kode Status Kehadiran:</strong><br/>
-            • <strong>TW:</strong> Tepat Waktu<br/>
-            • <strong>DL:</strong> Dinas Luar<br/>
-            • <strong>T1:</strong> Tahap 1 (terlambat)<br/>
-            • <strong>T2:</strong> Tahap 2 (terlambat)<br/>
-            • <strong>TK:</strong> Tanpa Keterangan<br/>
-            • <strong>I:</strong> Izin<br/>
-            • <strong>S:</strong> Sakit<br/>
-            • <strong>H:</strong> Hadir (umum)<br/>
+             • <strong>TW:</strong> Tepat Waktu (hanya dari status "Datang")<br/>
+             • <strong>DL:</strong> Dinas Luar<br/>
+             • <strong>T1:</strong> Tahap 1 (terlambat, hanya dari "Datang")<br/>
+             • <strong>T2:</strong> Tahap 2 (terlambat, hanya dari "Datang")<br/>
+             • <strong>TK:</strong> Tanpa Keterangan (termasuk hanya "Pulang" tanpa "Datang" ❌)<br/>
+             • <strong>I:</strong> Izin<br/>
+             • <strong>S:</strong> Sakit<br/>
+             • <strong>C:</strong> Cuti<br/>
+             • <strong>H:</strong> Hadir (umum, hanya dari "Datang")<br/>
             <strong>Kode Warna:</strong><br/>
             • 🟢 <strong>Hijau:</strong> Sempurna (tidak ada keterlambatan)<br/>
             • 🟡 <strong>Kuning:</strong> Ada Tahap 1<br/>
