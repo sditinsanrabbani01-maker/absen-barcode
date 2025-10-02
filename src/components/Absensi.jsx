@@ -15,7 +15,7 @@ import IzinForm from './IzinForm';
 import DataPerizinan from './DataPerizinan';
 import RekapAbsen from './RekapAbsen';
 import * as XLSX from 'xlsx';
-import { syncManager } from '../services/SyncManager';
+import { realtimeManager } from '../services/SyncManager';
 import { DatabaseService } from '../config/supabase';
 
 const Absensi = ({ mode }) => {
@@ -71,8 +71,6 @@ const Absensi = ({ mode }) => {
   const [rekapPage, setRekapPage] = useState(0);
   const [rekapRowsPerPage, setRekapRowsPerPage] = useState(20);
 
-  // Sync state
-  const [syncInProgress, setSyncInProgress] = useState(false);
 
   useEffect(() => {
     loadAttendanceData();
@@ -87,17 +85,40 @@ const Absensi = ({ mode }) => {
       setUsers([...guru, ...siswa]);
     });
 
-    // Listen for sync status changes and reload data when sync completes
-    const unsubscribe = syncManager.onSyncStatus((status) => {
-      if (status.type === 'sync_completed' || status.type === 'remote_sync_completed') {
-        console.log('🔄 Absensi component detected sync completion, reloading data...');
+    // ============================================================================
+    // NEW: Real-time subscriptions for attendance and perizinan data
+    // ============================================================================
+
+    // Setup real-time subscriptions for attendance and perizinan tables
+    const tablesToSubscribe = ['attendance', 'perizinan'];
+    const subscriptions = [];
+
+    tablesToSubscribe.forEach(tableName => {
+      const subscription = realtimeManager.subscribeToTable(tableName, (change) => {
+        console.log(`🔄 Real-time ${tableName} change in Absensi:`, change);
+
+        // Reload data when any change occurs
         loadAttendanceData();
         loadAttendanceSettings();
         loadAvailableJabatan();
-        // Reload users data after sync
+
+        // Reload users data after change
         Promise.all([db.guru.toArray(), db.siswa.toArray()]).then(([guru, siswa]) => {
           setUsers([...guru, ...siswa]);
         });
+      });
+
+      subscriptions.push(subscription);
+    });
+
+    // Listen for connection status changes
+    const connectionUnsubscribe = realtimeManager.onConnectionStatus((status) => {
+      console.log('🌐 Absensi connection status:', status);
+      if (status.online) {
+        // Reload data when coming back online
+        loadAttendanceData();
+        loadAttendanceSettings();
+        loadAvailableJabatan();
       }
     });
 
@@ -105,8 +126,10 @@ const Absensi = ({ mode }) => {
     window.refreshAbsensi = loadAttendanceData;
 
     return () => {
+      console.log('🔌 Cleaning up Absensi component subscriptions');
       delete window.refreshAbsensi;
-      unsubscribe();
+      subscriptions.forEach(sub => sub.unsubscribe());
+      connectionUnsubscribe();
     };
   }, []);
 
@@ -1161,30 +1184,6 @@ Terima kasih atas perhatiannya.`;
     }, 2000);
   }
 
-  // Sync functions
-  const handleManualSync = async () => {
-    setSyncInProgress(true);
-    try {
-      await syncManager.triggerManualSync();
-      alert('✅ Sinkronisasi manual berhasil');
-    } catch (error) {
-      alert('❌ Sinkronisasi gagal: ' + error.message);
-    } finally {
-      setSyncInProgress(false);
-    }
-  };
-
-  const handleRemoteSync = async () => {
-    setSyncInProgress(true);
-    try {
-      await syncManager.syncFromRemote();
-      alert('✅ Sinkronisasi dari cloud berhasil');
-    } catch (error) {
-      alert('❌ Sinkronisasi dari cloud gagal: ' + error.message);
-    } finally {
-      setSyncInProgress(false);
-    }
-  };
 
   const downloadTemplate = () => {
     // Create sample data for the template
@@ -1859,40 +1858,26 @@ Terima kasih atas perhatiannya.`;
           Absensi - Mode: {mode}
         </Typography>
 
-        {/* Sync Controls */}
+        {/* Real-time Status */}
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              startIcon={<SyncIcon />}
-              onClick={handleManualSync}
-              disabled={syncInProgress}
-              size="small"
-            >
-              {syncInProgress ? '🔄 Sync...' : '🔄 Sync Manual'}
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<CloudDoneIcon />}
-              onClick={handleRemoteSync}
-              disabled={syncInProgress}
-              size="small"
-            >
-              ☁️ Dari Cloud
-            </Button>
-          </Box>
+          <Chip
+            label="⚡ Real-time Sync Aktif"
+            color="success"
+            variant="outlined"
+            size="small"
+          />
         </Box>
       </Box>
 
-      {/* Sync Info Banner */}
+      {/* Real-time Info Banner */}
       <Box sx={{ mb: 2, p: 2, bgcolor: 'success.light', color: 'success.dark', borderRadius: 1, border: '1px solid', borderColor: 'success.main' }}>
         <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-          ✅ Mode Hybrid: Online + Offline Support Penuh
+          ⚡ Mode Real-time: Instant Cross-Device Sync
         </Typography>
         <Typography variant="body2" color="success.dark" component="div">
-          <strong>🌐 Online:</strong> Data tersinkronisasi otomatis dengan cloud<br/>
-          <strong>📴 Offline:</strong> Tetap bisa input absensi, data di-queue otomatis<br/>
-          <strong>🔄 Auto-Sync:</strong> Ketika online, semua perubahan ter-upload otomatis
+          <strong>📡 Real-time:</strong> Perubahan data langsung terlihat di semua device<br/>
+          <strong>🌐 Cross-device:</strong> Input di device A langsung muncul di device B, C, D<br/>
+          <strong>⚡ Instant:</strong> Tidak perlu refresh manual atau menunggu sync
         </Typography>
       </Box>
       <Tabs value={tabValue} onChange={handleTabChange}>

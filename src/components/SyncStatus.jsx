@@ -6,7 +6,6 @@ import {
   Badge,
   Snackbar,
   Alert,
-  LinearProgress,
   Chip,
   Typography,
   Popover,
@@ -28,7 +27,7 @@ import CloudOffIcon from '@mui/icons-material/CloudOff';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import WifiIcon from '@mui/icons-material/Wifi';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
-import { syncManager, realtimeManager } from '../services/SyncManager';
+import { realtimeManager } from '../services/SyncManager';
 
 const SyncStatus = () => {
   // ============================================================================
@@ -38,7 +37,6 @@ const SyncStatus = () => {
   const [connectionStatus, setConnectionStatus] = useState(realtimeManager.getConnectionStatus());
   const [snackbar, setSnackbar] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
-  const [historyDialog, setHistoryDialog] = useState(false);
 
   useEffect(() => {
     // ============================================================================
@@ -158,15 +156,6 @@ const SyncStatus = () => {
         </Tooltip>
       </Box>
 
-      {/* Sync Progress Bar */}
-      {showProgress && (
-        <Box sx={{ width: '100%', mt: 1 }}>
-          <LinearProgress />
-          <Typography variant="caption" sx={{ mt: 0.5 }}>
-            Sinkronisasi sedang berlangsung...
-          </Typography>
-        </Box>
-      )}
 
       {/* Real-time Status Popover */}
       <Popover
