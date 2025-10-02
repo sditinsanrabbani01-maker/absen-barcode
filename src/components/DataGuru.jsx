@@ -3,6 +3,7 @@ import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead
 import { Search as SearchIcon } from '@mui/icons-material';
 import QRCode from 'qrcode';
 import { db } from '../database';
+import { DatabaseService, TABLES } from '../config/supabase';
 
 const DataGuru = ({ mode }) => {
   const [data, setData] = useState([]);
@@ -23,14 +24,19 @@ const DataGuru = ({ mode }) => {
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
   useEffect(() => {
-    db.guru.where('status').equals('active').sortBy('nama').then(guruData => {
-      setData(guruData);
-      setFilteredData(guruData);
-    }).catch(err => {
-      console.error('Error loading guru data:', err);
-      setData([]);
-      setFilteredData([]);
-    });
+    const loadGuruData = async () => {
+      try {
+        const guruData = await DatabaseService.getGuru(true);
+        setData(guruData);
+        setFilteredData(guruData);
+      } catch (error) {
+        console.error('Error loading guru data:', error);
+        setData([]);
+        setFilteredData([]);
+      }
+    };
+
+    loadGuruData();
   }, []);
 
   useEffect(() => {
@@ -67,23 +73,30 @@ const DataGuru = ({ mode }) => {
     setEditing(null);
   };
 
-  const handleSave = () => {
-    if (editing) {
-      db.guru.update(editing.id, form).then(() => {
+  const handleSave = async () => {
+    try {
+      if (editing) {
+        await DatabaseService.update(TABLES.GURU, editing.id, form);
         setData(data.map(item => item.id === editing.id ? { ...form, id: editing.id } : item));
-      });
-    } else {
-      db.guru.add(form).then(id => {
-        setData([...data, { ...form, id }]);
-      });
+      } else {
+        const result = await DatabaseService.create(TABLES.GURU, form);
+        setData([...data, { ...form, id: result.id }]);
+      }
+      handleClose();
+    } catch (error) {
+      console.error('Error saving guru:', error);
+      alert('Error saving guru: ' + error.message);
     }
-    handleClose();
   };
 
-  const handleDelete = (id) => {
-    db.guru.delete(id).then(() => {
+  const handleDelete = async (id) => {
+    try {
+      await DatabaseService.delete(TABLES.GURU, id);
       setData(data.filter(item => item.id !== id));
-    });
+    } catch (error) {
+      console.error('Error deleting guru:', error);
+      alert('Error deleting guru: ' + error.message);
+    }
   };
 
   const handleSelectAll = (event) => {
@@ -103,35 +116,57 @@ const DataGuru = ({ mode }) => {
     setExitDialog(true);
   };
 
-  const handleExitConfirm = () => {
-    const exitData = data.filter(item => selected.includes(item.id));
-    const inactiveData = exitData.map(item => ({
-      ...item,
-      status: 'exit',
-      tanggal_keluar: exitForm.tanggal_keluar,
-      alasan: exitForm.alasan
-    }));
+  const handleExitConfirm = async () => {
+    try {
+      const exitData = data.filter(item => selected.includes(item.id));
+      const inactiveData = exitData.map(item => ({
+        ...item,
+        status: 'exit',
+        tanggal_keluar: exitForm.tanggal_keluar,
+        alasan: exitForm.alasan
+      }));
 
-    Promise.all([
-      db.guru.where('id').anyOf(selected).modify({ status: 'exit' }),
-      db.guru_inactive.bulkAdd(inactiveData)
-    ]).then(() => {
-      db.guru.where('status').equals('active').sortBy('nama').then(guruData => setData(guruData));
+      // Update selected teachers to exit status
+      for (const id of selected) {
+        await DatabaseService.update(TABLES.GURU, id, { status: 'exit' });
+      }
+
+      // Add to inactive table
+      if (inactiveData.length > 0) {
+        await DatabaseService.bulkCreate(TABLES.GURU_INACTIVE, inactiveData);
+      }
+
+      // Refresh data
+      const guruData = await DatabaseService.getGuru(true);
+      setData(guruData);
       setSelected([]);
       setExitDialog(false);
       setExitForm({ alasan: '', tanggal_keluar: '' });
       alert(`${selected.length} guru berhasil dipindahkan ke data tidak aktif`);
-    });
+    } catch (error) {
+      console.error('Error in exit operation:', error);
+      alert('Error in exit operation: ' + error.message);
+    }
   };
 
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = async () => {
     if (selected.length === 0) return;
     if (confirm(`Hapus ${selected.length} guru yang dipilih?`)) {
-      db.guru.where('id').anyOf(selected).delete().then(() => {
-        db.guru.where('status').equals('active').sortBy('nama').then(guruData => setData(guruData));
+      try {
+        // Delete selected teachers
+        for (const id of selected) {
+          await DatabaseService.delete(TABLES.GURU, id);
+        }
+
+        // Refresh data
+        const guruData = await DatabaseService.getGuru(true);
+        setData(guruData);
         setSelected([]);
         alert(`${selected.length} guru berhasil dihapus`);
-      });
+      } catch (error) {
+        console.error('Error deleting selected guru:', error);
+        alert('Error deleting guru: ' + error.message);
+      }
     }
   };
 

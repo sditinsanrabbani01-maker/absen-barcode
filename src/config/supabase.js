@@ -385,6 +385,7 @@ export class DatabaseService {
     console.log(`📝 Creating record in ${tableName}:`, data)
 
     const { db } = await import('../database.js');
+    const { syncManager } = await import('../services/SyncManager.js');
 
     // Prepare data with timestamps
     const dataWithTimestamp = {
@@ -394,21 +395,7 @@ export class DatabaseService {
     };
 
     try {
-      // First, try to create in Supabase
-      const { data: supabaseResult, error: supabaseError } = await supabase
-        .from(tableName)
-        .insert(dataWithTimestamp)
-        .select()
-        .single()
-
-      if (supabaseError) {
-        console.error(`❌ Error creating record in Supabase ${tableName}:`, supabaseError)
-        // Continue to local storage
-      } else {
-        console.log(`✅ Record created in Supabase ${tableName}:`, supabaseResult)
-      }
-
-      // Always create in local storage
+      // Always create in local storage first for immediate response
       let localResult;
       if (tableName === TABLES.GURU) {
         localResult = await db.guru.add(dataWithTimestamp);
@@ -420,12 +407,27 @@ export class DatabaseService {
         localResult = await db.perizinan.add(data);
       } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
         localResult = await db.attendance_settings.add(data);
+      } else if (tableName === TABLES.PENGAJIAN) {
+        localResult = await db.penggajian.add(data);
       }
 
       console.log(`✅ Record created in local ${tableName}:`, localResult)
 
-      // Return Supabase result if successful, otherwise local result
-      return supabaseResult || { id: localResult, ...dataWithTimestamp };
+      // Real-time sync to Supabase (don't wait for it to block UI)
+      syncManager.syncImmediately(tableName, 'create', dataWithTimestamp)
+        .then(result => {
+          if (result.success) {
+            console.log(`✅ Real-time sync successful for ${tableName} create`);
+          } else {
+            console.warn(`⚠️ Real-time sync failed for ${tableName} create, queued for retry`);
+          }
+        })
+        .catch(error => {
+          console.error(`❌ Real-time sync error for ${tableName} create:`, error);
+        });
+
+      // Return local result immediately for responsive UI
+      return { id: localResult, ...dataWithTimestamp, synced: false };
 
     } catch (error) {
       console.error(`❌ Error in create operation for ${tableName}:`, error)
@@ -437,6 +439,7 @@ export class DatabaseService {
     console.log(`📝 Updating record in ${tableName} (ID: ${id}):`, data)
 
     const { db } = await import('../database.js');
+    const { syncManager } = await import('../services/SyncManager.js');
 
     // Prepare data with updated timestamp
     const dataWithTimestamp = {
@@ -445,22 +448,7 @@ export class DatabaseService {
     };
 
     try {
-      // First, try to update in Supabase
-      const { data: supabaseResult, error: supabaseError } = await supabase
-        .from(tableName)
-        .update(dataWithTimestamp)
-        .eq('id', id)
-        .select()
-        .single()
-
-      if (supabaseError) {
-        console.error(`❌ Error updating record in Supabase ${tableName}:`, supabaseError)
-        // Continue to local storage
-      } else {
-        console.log(`✅ Record updated in Supabase ${tableName}:`, supabaseResult)
-      }
-
-      // Always update in local storage
+      // Always update in local storage first for immediate response
       let localResult;
       if (tableName === TABLES.GURU) {
         localResult = await db.guru.update(id, dataWithTimestamp);
@@ -472,12 +460,27 @@ export class DatabaseService {
         localResult = await db.perizinan.update(id, data);
       } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
         localResult = await db.attendance_settings.update(id, data);
+      } else if (tableName === TABLES.PENGAJIAN) {
+        localResult = await db.penggajian.update(id, data);
       }
 
       console.log(`✅ Record updated in local ${tableName}:`, localResult)
 
-      // Return Supabase result if successful, otherwise local result
-      return supabaseResult || { id, ...dataWithTimestamp };
+      // Real-time sync to Supabase (don't wait for it to block UI)
+      syncManager.syncImmediately(tableName, 'update', dataWithTimestamp, id)
+        .then(result => {
+          if (result.success) {
+            console.log(`✅ Real-time sync successful for ${tableName} update`);
+          } else {
+            console.warn(`⚠️ Real-time sync failed for ${tableName} update, queued for retry`);
+          }
+        })
+        .catch(error => {
+          console.error(`❌ Real-time sync error for ${tableName} update:`, error);
+        });
+
+      // Return local result immediately for responsive UI
+      return { id, ...dataWithTimestamp, synced: false };
 
     } catch (error) {
       console.error(`❌ Error in update operation for ${tableName}:`, error)
@@ -489,22 +492,10 @@ export class DatabaseService {
     console.log(`🗑️ Deleting record from ${tableName} (ID: ${id})`)
 
     const { db } = await import('../database.js');
+    const { syncManager } = await import('../services/SyncManager.js');
 
     try {
-      // First, try to delete from Supabase
-      const { error: supabaseError } = await supabase
-        .from(tableName)
-        .delete()
-        .eq('id', id)
-
-      if (supabaseError) {
-        console.error(`❌ Error deleting record from Supabase ${tableName}:`, supabaseError)
-        // Continue to local storage
-      } else {
-        console.log(`✅ Record deleted from Supabase ${tableName}`)
-      }
-
-      // Always delete from local storage
+      // Always delete from local storage first for immediate response
       if (tableName === TABLES.GURU) {
         await db.guru.delete(id);
       } else if (tableName === TABLES.SISWA) {
@@ -515,9 +506,24 @@ export class DatabaseService {
         await db.perizinan.delete(id);
       } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
         await db.attendance_settings.delete(id);
+      } else if (tableName === TABLES.PENGAJIAN) {
+        await db.penggajian.delete(id);
       }
 
       console.log(`✅ Record deleted from local ${tableName}`)
+
+      // Real-time sync to Supabase (don't wait for it to block UI)
+      syncManager.syncImmediately(tableName, 'delete', { id }, id)
+        .then(result => {
+          if (result.success) {
+            console.log(`✅ Real-time sync successful for ${tableName} delete`);
+          } else {
+            console.warn(`⚠️ Real-time sync failed for ${tableName} delete, queued for retry`);
+          }
+        })
+        .catch(error => {
+          console.error(`❌ Real-time sync error for ${tableName} delete:`, error);
+        });
 
     } catch (error) {
       console.error(`❌ Error in delete operation for ${tableName}:`, error)
@@ -529,6 +535,7 @@ export class DatabaseService {
     console.log(`📤 Inserting ${dataArray.length} records to ${tableName}...`)
 
     const { db } = await import('../database.js');
+    const { syncManager } = await import('../services/SyncManager.js');
 
     // Prepare data with timestamps
     const dataWithTimestamps = dataArray.map(data => ({
@@ -538,20 +545,7 @@ export class DatabaseService {
     }));
 
     try {
-      // First, try to bulk insert to Supabase
-      const { data: supabaseData, error: supabaseError } = await supabase
-        .from(tableName)
-        .insert(dataWithTimestamps)
-        .select()
-
-      if (supabaseError) {
-        console.error(`❌ Error bulk inserting to Supabase ${tableName}:`, supabaseError)
-        // Continue to local storage
-      } else {
-        console.log(`✅ Successfully inserted ${supabaseData?.length || 0} records to Supabase ${tableName}`)
-      }
-
-      // Always bulk insert to local storage
+      // Always bulk insert to local storage first for immediate response
       let localResults;
       if (tableName === TABLES.GURU) {
         localResults = await db.guru.bulkAdd(dataWithTimestamps);
@@ -563,12 +557,27 @@ export class DatabaseService {
         localResults = await db.perizinan.bulkAdd(dataArray);
       } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
         localResults = await db.attendance_settings.bulkAdd(dataArray);
+      } else if (tableName === TABLES.PENGAJIAN) {
+        localResults = await db.penggajian.bulkAdd(dataArray);
       }
 
       console.log(`✅ Successfully inserted ${dataArray.length} records to local ${tableName}`)
 
-      // Return Supabase results if successful, otherwise local results
-      return supabaseData || dataWithTimestamps;
+      // Real-time sync to Supabase (don't wait for it to block UI)
+      syncManager.syncImmediately(tableName, 'create', dataWithTimestamps)
+        .then(result => {
+          if (result.success) {
+            console.log(`✅ Real-time bulk sync successful for ${tableName}`);
+          } else {
+            console.warn(`⚠️ Real-time bulk sync failed for ${tableName}, queued for retry`);
+          }
+        })
+        .catch(error => {
+          console.error(`❌ Real-time bulk sync error for ${tableName}:`, error);
+        });
+
+      // Return local results immediately for responsive UI
+      return dataWithTimestamps;
 
     } catch (error) {
       console.error(`❌ Error in bulk create operation for ${tableName}:`, error)

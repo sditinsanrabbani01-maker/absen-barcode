@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { db } from '../database';
+import { DatabaseService, TABLES } from '../config/supabase';
 import { WHATSAPP_CONFIG, getGroupName } from '../config/whatsapp';
 
 const IzinForm = ({ mode }) => {
@@ -134,7 +135,7 @@ const IzinForm = ({ mode }) => {
         sebagai: foundUser.sebagai
       };
 
-      const result = await db.perizinan.add(perizinanData);
+      const result = await DatabaseService.create(TABLES.PERIZINAN, perizinanData);
 
       // Send WhatsApp message to group
       await sendWhatsAppToGroup(foundUser, jenisIzin, keterangan.trim(), today, tanggalMulai, tanggalSelesai);

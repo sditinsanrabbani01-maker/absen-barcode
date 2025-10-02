@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Tabs, Tab, TablePagination } from '@mui/material';
 import { db } from '../database';
+import { DatabaseService, TABLES } from '../config/supabase';
 
 const DataMutasi = ({ mode }) => {
   const [tabValue, setTabValue] = useState(0);
@@ -14,63 +15,84 @@ const DataMutasi = ({ mode }) => {
   const [siswaRowsPerPage, setSiswaRowsPerPage] = useState(20);
 
   useEffect(() => {
-    db.guru_inactive.toArray().then(data => setGuruInactive(data));
-    db.siswa_inactive.toArray().then(data => setSiswaInactive(data));
+    const loadInactiveData = async () => {
+      try {
+        // For inactive data, we'll use direct database access since these are not in main Supabase tables
+        const guruData = await db.guru_inactive.toArray();
+        const siswaData = await db.siswa_inactive.toArray();
+        setGuruInactive(guruData);
+        setSiswaInactive(siswaData);
+      } catch (error) {
+        console.error('Error loading inactive data:', error);
+      }
+    };
+
+    loadInactiveData();
   }, []);
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
 
-  const handleRestore = (table, id) => {
-    if (table === 'guru') {
-      db.guru_inactive.get(id).then(item => {
+  const handleRestore = async (table, id) => {
+    try {
+      if (table === 'guru') {
+        const item = await db.guru_inactive.get(id);
         if (item) {
           const activeItem = { ...item };
           delete activeItem.tanggal_keluar;
           delete activeItem.alasan;
           activeItem.status = 'active';
 
-          Promise.all([
-            db.guru.add(activeItem),
-            db.guru_inactive.delete(id)
-          ]).then(() => {
-            db.guru_inactive.toArray().then(data => setGuruInactive(data));
-            alert('Guru berhasil dikembalikan ke data aktif');
-          });
+          // Add back to active table and remove from inactive
+          await DatabaseService.create(TABLES.GURU, activeItem);
+          await db.guru_inactive.delete(id);
+
+          // Refresh data
+          const data = await db.guru_inactive.toArray();
+          setGuruInactive(data);
+          alert('Guru berhasil dikembalikan ke data aktif');
         }
-      });
-    } else {
-      db.siswa_inactive.get(id).then(item => {
+      } else {
+        const item = await db.siswa_inactive.get(id);
         if (item) {
           const activeItem = { ...item };
           delete activeItem.tanggal_keluar;
           delete activeItem.alasan;
           activeItem.status = 'active';
 
-          Promise.all([
-            db.siswa.add(activeItem),
-            db.siswa_inactive.delete(id)
-          ]).then(() => {
-            db.siswa_inactive.toArray().then(data => setSiswaInactive(data));
-            alert('Siswa berhasil dikembalikan ke data aktif');
-          });
+          // Add back to active table and remove from inactive
+          await DatabaseService.create(TABLES.SISWA, activeItem);
+          await db.siswa_inactive.delete(id);
+
+          // Refresh data
+          const data = await db.siswa_inactive.toArray();
+          setSiswaInactive(data);
+          alert('Siswa berhasil dikembalikan ke data aktif');
         }
-      });
+      }
+    } catch (error) {
+      console.error('Error restoring record:', error);
+      alert('Error restoring record: ' + error.message);
     }
   };
 
-  const handleDelete = (table, id) => {
-    if (confirm('Hapus data ini secara permanen?')) {
-      if (table === 'guru') {
-        db.guru_inactive.delete(id).then(() => {
-          db.guru_inactive.toArray().then(data => setGuruInactive(data));
-        });
-      } else {
-        db.siswa_inactive.delete(id).then(() => {
-          db.siswa_inactive.toArray().then(data => setSiswaInactive(data));
-        });
+  const handleDelete = async (table, id) => {
+    try {
+      if (confirm('Hapus data ini secara permanen?')) {
+        if (table === 'guru') {
+          await db.guru_inactive.delete(id);
+          const data = await db.guru_inactive.toArray();
+          setGuruInactive(data);
+        } else {
+          await db.siswa_inactive.delete(id);
+          const data = await db.siswa_inactive.toArray();
+          setSiswaInactive(data);
+        }
       }
+    } catch (error) {
+      console.error('Error deleting inactive record:', error);
+      alert('Error deleting record: ' + error.message);
     }
   };
 

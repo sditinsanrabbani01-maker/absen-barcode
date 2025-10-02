@@ -26,6 +26,7 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { db } from '../database';
+import { DatabaseService, TABLES } from '../config/supabase';
 
 const DataPerizinan = ({ mode }) => {
   const [perizinanData, setPerizinanData] = useState([]);
@@ -60,30 +61,40 @@ const DataPerizinan = ({ mode }) => {
     };
   }, []);
 
-  const loadPerizinanData = () => {
-    if (db && db.perizinan) {
-      db.perizinan.orderBy('tanggal').reverse().toArray().then(data => {
-        setPerizinanData(data);
-        setLoading(false);
-        setSelectedPerizinan([]); // Clear selections when data is refreshed
-      }).catch(error => {
-        setLoading(false);
-      });
-    } else {
+  const loadPerizinanData = async () => {
+    try {
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 3); // Last 3 months
+      const endDate = new Date();
+
+      const data = await DatabaseService.getPerizinanByDateRange(
+        startDate.toISOString().split('T')[0],
+        endDate.toISOString().split('T')[0]
+      );
+
+      setPerizinanData(data || []);
+      setLoading(false);
+      setSelectedPerizinan([]);
+    } catch (error) {
+      console.error('Error loading perizinan data:', error);
       setLoading(false);
     }
   };
 
-  const handleDeletePerizinan = (id) => {
-    if (confirm('Hapus data perizinan ini?')) {
-      db.perizinan.delete(id).then(() => {
+  const handleDeletePerizinan = async (id) => {
+    try {
+      if (confirm('Hapus data perizinan ini?')) {
+        await DatabaseService.delete(TABLES.PERIZINAN, id);
         loadPerizinanData();
 
         // Trigger refresh in RekapAbsen if available
         if (window.refreshRekapAbsen) {
           window.refreshRekapAbsen();
         }
-      });
+      }
+    } catch (error) {
+      console.error('Error deleting perizinan:', error);
+      alert('Error deleting perizinan: ' + error.message);
     }
   };
 
@@ -92,7 +103,7 @@ const DataPerizinan = ({ mode }) => {
     setEditDialog(true);
   };
 
-  const handleUpdatePerizinan = () => {
+  const handleUpdatePerizinan = async () => {
     if (!editingPerizinan) return;
 
     // Validate required fields
@@ -101,7 +112,8 @@ const DataPerizinan = ({ mode }) => {
       return;
     }
 
-    db.perizinan.update(editingPerizinan.id, editingPerizinan).then(() => {
+    try {
+      await DatabaseService.update(TABLES.PERIZINAN, editingPerizinan.id, editingPerizinan);
       loadPerizinanData();
       setEditDialog(false);
       setEditingPerizinan(null);
@@ -111,10 +123,10 @@ const DataPerizinan = ({ mode }) => {
       if (window.refreshRekapAbsen) {
         window.refreshRekapAbsen();
       }
-    }).catch(error => {
+    } catch (error) {
       console.error('Error updating perizinan:', error);
       alert('Gagal mengupdate data perizinan: ' + error.message);
-    });
+    }
   };
 
   const handleCloseEditDialog = () => {
@@ -136,10 +148,15 @@ const DataPerizinan = ({ mode }) => {
     }
   };
 
-  const handleDeleteSelectedPerizinan = () => {
+  const handleDeleteSelectedPerizinan = async () => {
     if (selectedPerizinan.length === 0) return;
     if (confirm(`Hapus ${selectedPerizinan.length} data perizinan yang dipilih?`)) {
-      Promise.all(selectedPerizinan.map(id => db.perizinan.delete(id))).then(() => {
+      try {
+        // Delete selected perizinan records
+        for (const id of selectedPerizinan) {
+          await DatabaseService.delete(TABLES.PERIZINAN, id);
+        }
+
         loadPerizinanData();
         setSelectedPerizinan([]);
 
@@ -147,7 +164,10 @@ const DataPerizinan = ({ mode }) => {
         if (window.refreshRekapAbsen) {
           window.refreshRekapAbsen();
         }
-      });
+      } catch (error) {
+        console.error('Error deleting selected perizinan:', error);
+        alert('Error deleting perizinan: ' + error.message);
+      }
     }
   };
 

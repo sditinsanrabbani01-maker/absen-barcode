@@ -353,7 +353,61 @@ export class SyncManager {
     }
   }
 
-  // Sync attendance data specifically
+  // Real-time sync for immediate synchronization
+  async syncImmediately(tableName, operation, data, id = null) {
+    if (!this.isOnline) {
+      // Queue for offline sync
+      this.addToOfflineQueue({ type: operation, table: tableName, data, id });
+      return { queued: true };
+    }
+
+    try {
+      console.log(`🔄 Real-time sync: ${operation} ${tableName}`, data);
+
+      let result;
+      switch (operation) {
+        case 'create':
+          result = await DatabaseService.create(tableName, data);
+          break;
+        case 'update':
+          result = await DatabaseService.update(tableName, id, data);
+          break;
+        case 'delete':
+          result = await DatabaseService.delete(tableName, id);
+          break;
+        default:
+          throw new Error(`Unknown operation: ${operation}`);
+      }
+
+      // Notify success
+      this.notifySyncStatus({
+        type: 'realtime_sync_completed',
+        operation,
+        table: tableName,
+        timestamp: new Date().toISOString()
+      });
+
+      console.log(`✅ Real-time sync completed: ${operation} ${tableName}`);
+      return { success: true, result };
+
+    } catch (error) {
+      console.error(`❌ Real-time sync failed: ${operation} ${tableName}`, error);
+
+      // Queue for retry if online sync fails
+      this.addToOfflineQueue({ type: operation, table: tableName, data, id });
+
+      this.notifySyncStatus({
+        type: 'realtime_sync_error',
+        operation,
+        table: tableName,
+        error: error.message
+      });
+
+      return { success: false, error: error.message, queued: true };
+    }
+  }
+
+  // Sync attendance data specifically (enhanced for real-time)
   async syncAttendanceData() {
     if (!this.isOnline) return;
 

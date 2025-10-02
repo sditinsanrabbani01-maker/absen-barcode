@@ -3,6 +3,7 @@ import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead
 import { Search as SearchIcon } from '@mui/icons-material';
 import QRCode from 'qrcode';
 import { db } from '../database';
+import { DatabaseService, TABLES } from '../config/supabase';
 
 const DataSiswa = ({ mode }) => {
   const [data, setData] = useState([]);
@@ -23,10 +24,19 @@ const DataSiswa = ({ mode }) => {
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
   useEffect(() => {
-    db.siswa.where('status').equals('active').sortBy('nama').then(siswaData => {
-      setData(siswaData);
-      setFilteredData(siswaData);
-    });
+    const loadSiswaData = async () => {
+      try {
+        const siswaData = await DatabaseService.getSiswa(true);
+        setData(siswaData);
+        setFilteredData(siswaData);
+      } catch (error) {
+        console.error('Error loading siswa data:', error);
+        setData([]);
+        setFilteredData([]);
+      }
+    };
+
+    loadSiswaData();
   }, []);
 
   useEffect(() => {
@@ -63,23 +73,30 @@ const DataSiswa = ({ mode }) => {
     setEditing(null);
   };
 
-  const handleSave = () => {
-    if (editing) {
-      db.siswa.update(editing.id, form).then(() => {
+  const handleSave = async () => {
+    try {
+      if (editing) {
+        await DatabaseService.update(TABLES.SISWA, editing.id, form);
         setData(data.map(item => item.id === editing.id ? { ...form, id: editing.id } : item));
-      });
-    } else {
-      db.siswa.add(form).then(id => {
-        setData([...data, { ...form, id }]);
-      });
+      } else {
+        const result = await DatabaseService.create(TABLES.SISWA, form);
+        setData([...data, { ...form, id: result.id }]);
+      }
+      handleClose();
+    } catch (error) {
+      console.error('Error saving siswa:', error);
+      alert('Error saving siswa: ' + error.message);
     }
-    handleClose();
   };
 
-  const handleDelete = (id) => {
-    db.siswa.delete(id).then(() => {
+  const handleDelete = async (id) => {
+    try {
+      await DatabaseService.delete(TABLES.SISWA, id);
       setData(data.filter(item => item.id !== id));
-    });
+    } catch (error) {
+      console.error('Error deleting siswa:', error);
+      alert('Error deleting siswa: ' + error.message);
+    }
   };
 
   const handleSelectAll = (event) => {
@@ -99,35 +116,57 @@ const DataSiswa = ({ mode }) => {
     setExitDialog(true);
   };
 
-  const handleExitConfirm = () => {
-    const exitData = data.filter(item => selected.includes(item.id));
-    const inactiveData = exitData.map(item => ({
-      ...item,
-      status: 'exit',
-      tanggal_keluar: exitForm.tanggal_keluar,
-      alasan: exitForm.alasan
-    }));
+  const handleExitConfirm = async () => {
+    try {
+      const exitData = data.filter(item => selected.includes(item.id));
+      const inactiveData = exitData.map(item => ({
+        ...item,
+        status: 'exit',
+        tanggal_keluar: exitForm.tanggal_keluar,
+        alasan: exitForm.alasan
+      }));
 
-    Promise.all([
-      db.siswa.where('id').anyOf(selected).modify({ status: 'exit' }),
-      db.siswa_inactive.bulkAdd(inactiveData)
-    ]).then(() => {
-      db.siswa.where('status').equals('active').sortBy('nama').then(siswaData => setData(siswaData));
+      // Update selected students to exit status
+      for (const id of selected) {
+        await DatabaseService.update(TABLES.SISWA, id, { status: 'exit' });
+      }
+
+      // Add to inactive table
+      if (inactiveData.length > 0) {
+        await DatabaseService.bulkCreate(TABLES.SISWA_INACTIVE, inactiveData);
+      }
+
+      // Refresh data
+      const siswaData = await DatabaseService.getSiswa(true);
+      setData(siswaData);
       setSelected([]);
       setExitDialog(false);
       setExitForm({ alasan: '', tanggal_keluar: '' });
       alert(`${selected.length} siswa berhasil dipindahkan ke data tidak aktif`);
-    });
+    } catch (error) {
+      console.error('Error in exit operation:', error);
+      alert('Error in exit operation: ' + error.message);
+    }
   };
 
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = async () => {
     if (selected.length === 0) return;
     if (confirm(`Hapus ${selected.length} siswa yang dipilih?`)) {
-      db.siswa.where('id').anyOf(selected).delete().then(() => {
-        db.siswa.where('status').equals('active').sortBy('nama').then(siswaData => setData(siswaData));
+      try {
+        // Delete selected students
+        for (const id of selected) {
+          await DatabaseService.delete(TABLES.SISWA, id);
+        }
+
+        // Refresh data
+        const siswaData = await DatabaseService.getSiswa(true);
+        setData(siswaData);
         setSelected([]);
         alert(`${selected.length} siswa berhasil dihapus`);
-      });
+      } catch (error) {
+        console.error('Error deleting selected siswa:', error);
+        alert('Error deleting siswa: ' + error.message);
+      }
     }
   };
 

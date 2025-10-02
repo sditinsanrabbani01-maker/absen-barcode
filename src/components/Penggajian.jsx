@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { db } from '../database';
+import { DatabaseService, TABLES } from '../config/supabase';
 
 const Penggajian = ({ mode }) => {
   const [tabValue, setTabValue] = useState(0);
@@ -187,7 +188,7 @@ const Penggajian = ({ mode }) => {
 
       // Clear imported salary when using settings
       if (teacher.gaji_pokok) {
-        db.guru.update(teacher.id, { gaji_pokok: null });
+        DatabaseService.update(TABLES.GURU, teacher.id, { gaji_pokok: null });
         console.log(`🗑️ Cleared imported gaji_pokok for ${teacher.nama} due to settings > 0`);
       }
     } else {
@@ -226,7 +227,7 @@ const Penggajian = ({ mode }) => {
 
   const saveTeacherEducation = async () => {
     try {
-      await db.guru.update(selectedTeacherForEducation.id, {
+      await DatabaseService.update(TABLES.GURU, selectedTeacherForEducation.id, {
         pendidikan: teacherEducationData.educationLevel,
         mk_start_year: teacherEducationData.startYear,
         mk_start_month: teacherEducationData.startMonth
@@ -246,7 +247,7 @@ const Penggajian = ({ mode }) => {
     setLoading(true);
     try {
       // Get only guru (teachers) data for payroll
-      const allEmployees = await db.guru.where('status').equals('active').toArray();
+      const allEmployees = await DatabaseService.getGuru(true);
 
       // Calculate attendance data for each employee
       const payrollWithDeductions = await Promise.all(
@@ -505,11 +506,11 @@ const Penggajian = ({ mode }) => {
             updated_at: new Date().toISOString()
           };
 
-          await db.guru.update(existing.id, replacedRecord);
+          await DatabaseService.update(TABLES.GURU, existing.id, replacedRecord);
           console.log(`✅ Replaced record ${existing.id} for ${payrollRecord.nama} with imported data`);
         } else {
           console.log(`➕ Adding new record for ${payrollRecord.nama}`);
-          await db.guru.add({
+          await DatabaseService.create(TABLES.GURU, {
             ...payrollRecord,
             created_at: new Date().toISOString(),
             imported_at: new Date().toISOString()
@@ -584,7 +585,10 @@ const Penggajian = ({ mode }) => {
 
       if (toDelete.length > 0) {
         console.log(`Deleting ${toDelete.length} duplicate records:`, toDelete);
-        await db.guru.where('id').anyOf(toDelete).delete();
+        // Delete duplicate records using DatabaseService
+        for (const id of toDelete) {
+          await DatabaseService.delete(TABLES.GURU, id);
+        }
         alert(`✅ Duplicates cleaned! ${toDelete.length} records removed.`);
       } else {
         alert('ℹ️ No duplicates found to clean.');
@@ -721,7 +725,7 @@ Keterangan\t: ${employee.keterangan || '-'}
   const saveEditing = async (employee) => {
     try {
       // Update the employee record in the database
-      await db.guru.update(employee.id, {
+      await DatabaseService.update(TABLES.GURU, employee.id, {
         custom_base_salary: parseFloat(editValues.gaji_pokok) || 0,
         tunjangan_kinerja: parseFloat(editValues.tunjangan_kinerja) || 0,
         tunjangan_umum: parseFloat(editValues.tunjangan_umum) || 0,
