@@ -27,6 +27,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { db } from '../database';
 import { DatabaseService, TABLES } from '../config/supabase';
+import { realtimeManager } from '../services/SyncManager';
 
 const DataPerizinan = ({ mode }) => {
   const [perizinanData, setPerizinanData] = useState([]);
@@ -40,24 +41,44 @@ const DataPerizinan = ({ mode }) => {
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
   useEffect(() => {
-    // Register global refresh function
-    window.refreshPerizinanData = loadPerizinanData;
+    // ============================================================================
+    // NEW: Real-time subscriptions for perizinan data
+    // ============================================================================
 
-    // Wait for database to be ready
-    const checkDatabaseReady = () => {
-      if (typeof db !== 'undefined' && db.perizinan) {
-        loadPerizinanData();
-      } else {
-        setTimeout(checkDatabaseReady, 500);
+    // Initial load
+    loadPerizinanData();
+
+    // Setup real-time subscription for perizinan table
+    const subscription = realtimeManager.subscribeToTable('perizinan', (change) => {
+      console.log(`🔄 Real-time perizinan change in DataPerizinan:`, change);
+
+      // Reload data when any change occurs
+      loadPerizinanData();
+
+      // Show notification for real-time updates
+      if (change.eventType === 'INSERT') {
+        console.log(`✅ New perizinan record added`);
+      } else if (change.eventType === 'UPDATE') {
+        console.log(`📝 Perizinan record updated`);
+      } else if (change.eventType === 'DELETE') {
+        console.log(`🗑️ Perizinan record deleted`);
       }
-    };
+    });
 
-    // Start checking after a short delay to ensure db is initialized
-    setTimeout(checkDatabaseReady, 100);
+    // Listen for connection status changes
+    const connectionUnsubscribe = realtimeManager.onConnectionStatus((status) => {
+      console.log('🌐 DataPerizinan connection status:', status);
+      if (status.online) {
+        // Reload data when coming back online
+        loadPerizinanData();
+      }
+    });
 
-    // Cleanup
+    // Cleanup function
     return () => {
-      delete window.refreshPerizinanData;
+      console.log('🔌 Cleaning up DataPerizinan subscriptions');
+      subscription.unsubscribe();
+      connectionUnsubscribe();
     };
   }, []);
 

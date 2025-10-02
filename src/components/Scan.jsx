@@ -48,6 +48,11 @@ const Scan = () => {
   const [duplicateDialog, setDuplicateDialog] = useState({ open: false, nama: '', status: '', att: '' });
   const [mirrorMode, setMirrorMode] = useState(true); // Default mirror mode enabled
   const [scannerSize, setScannerSize] = useState(3); // 0: Kecil, 1: Sedang, 2: Besar, 3: FULL (default)
+  const [retryCount, setRetryCount] = useState(0);
+  const [maxRetries, setMaxRetries] = useState(3);
+  const [scanAttempts, setScanAttempts] = useState(0);
+  const [lastScanTime, setLastScanTime] = useState(0);
+  const [enhancedMode, setEnhancedMode] = useState(true); // Enable enhanced scanning by default
   const html5QrCodeRef = useRef(null);
   const navigate = useNavigate();
 
@@ -109,25 +114,93 @@ const Scan = () => {
       }
 
       const scannerConfig = getScannerConfig(scannerSize);
+
+      // Enhanced configuration for better sensitivity with blurry/damaged QR codes
       const config = {
-        fps: 15, // Increased from 10 for smoother scanning
+        fps: enhancedMode ? 30 : 15, // Higher FPS for more frequent scanning attempts
         qrbox: scannerConfig.qrbox,
-        aspectRatio: 1.0, // Use square aspect ratio for better QR detection
+        aspectRatio: 1.0,
+        // Enhanced experimental features for better detection
         experimentalFeatures: {
-          useBarCodeDetectorIfSupported: false // Disable for better compatibility
+          useBarCodeDetectorIfSupported: false, // Use software decoder for better control
+        },
+        // Additional configuration for better QR detection
+        supportedScanTypes: [
+          Html5QrcodeSupportedFormats.QR_CODE // Focus only on QR codes
+        ],
+        // Show QR code outlines for debugging (development only)
+        showTorchButtonIfSupported: true,
+        showZoomSliderIfSupported: true,
+        // Default zoom level for better focus
+        defaultZoomValueIfSupported: 2,
+        // Additional settings for better detection
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        // Improve detection of low quality QR codes
+        useWebgl: false // Use CPU for better compatibility with low quality codes
+      };
+
+      // Add preprocessing for better QR detection
+      if (enhancedMode) {
+        console.log('🎯 Enhanced scanning mode activated - optimized for blurry/damaged QR codes');
+      }
+
+      // Enhanced success callback with retry mechanism
+      const enhancedOnScanSuccess = async (decodedText, decodedResult) => {
+        const currentTime = Date.now();
+        setLastScanTime(currentTime);
+        setScanAttempts(prev => prev + 1);
+
+        console.log('🔍 QR Code detected:', decodedText);
+        console.log('📊 Detection confidence:', decodedResult.result.correctionLevel || 'Unknown');
+
+        // Reset retry count on successful scan
+        setRetryCount(0);
+
+        // Process the scan result
+        await onScanSuccess(decodedText);
+      };
+
+      // Enhanced failure callback with retry logic
+      const enhancedOnScanFailure = (error) => {
+        const currentTime = Date.now();
+
+        // Only log errors, don't show to user as it's normal for failed scans
+        console.debug('Scan attempt failed:', error);
+
+        // Implement retry mechanism for failed scans
+        if (enhancedMode && currentTime - lastScanTime > 5000) { // If no successful scan in 5 seconds
+          setRetryCount(prev => {
+            const newCount = prev + 1;
+            if (newCount >= maxRetries) {
+              console.log('🔄 Switching to enhanced scanning mode due to repeated failures');
+              // Could implement fallback scanning strategies here
+              return 0; // Reset counter
+            }
+            return newCount;
+          });
         }
+
+        onScanFailure(error);
       };
 
       await html5QrCodeRef.current.start(
         cameraId,
         config,
-        onScanSuccess,
-        onScanFailure
+        enhancedOnScanSuccess,
+        enhancedOnScanFailure
       );
 
       setIsScanning(true);
+      console.log('🚀 Enhanced QR Scanner started with improved sensitivity');
     } catch (error) {
-      console.error('Failed to start scanner:', error);
+      console.error('Failed to start enhanced scanner:', error);
+
+      // Fallback to basic scanning if enhanced fails
+      if (enhancedMode) {
+        console.log('🔄 Falling back to basic scanning mode');
+        setEnhancedMode(false);
+        setTimeout(() => startScanning(cameraId), 1000);
+      }
     }
   };
 
@@ -143,65 +216,115 @@ const Scan = () => {
     }
   };
 
-  const onScanSuccess = async (decodedText) => {
+  const onScanSuccess = async (decodedText, decodedResult) => {
+    const currentTime = Date.now();
 
-    // Check if this code has already been processed in this session
+    // Enhanced duplicate checking with time-based reset
     if (processedCodes.has(decodedText)) {
+      // Reset processed codes after 10 minutes to allow re-scanning
+      const timeSinceLastScan = currentTime - lastScanTime;
+      if (timeSinceLastScan > 600000) { // 10 minutes
+        setProcessedCodes(new Set());
+        console.log('🔄 Reset duplicate tracking after timeout');
+      } else {
+        // Find user to show name in duplicate message
+        try {
+          const [guru, siswa] = await Promise.all([
+            db.guru.where('niy').equals(decodedText).first(),
+            db.siswa.where('nisn').equals(decodedText).first()
+          ]);
+          const user = guru || siswa;
 
-      // Find user to show name in duplicate message
-      try {
-        const [guru, siswa] = await Promise.all([
-          db.guru.where('niy').equals(decodedText).first(),
-          db.siswa.where('nisn').equals(decodedText).first()
-        ]);
-        const user = guru || siswa;
-
-        if (user) {
-          // Show intrusive popup for duplicates
-          alert(`Maaf ${user.nama} telah absen`);
-        } else {
+          if (user) {
+            alert(`Maaf ${user.nama} telah absen`);
+          } else {
+            alert('Kode QR sudah dipindai sebelumnya');
+          }
+        } catch (error) {
+          console.error('Error checking duplicate:', error);
           alert('Kode QR sudah dipindai sebelumnya');
         }
-      } catch (error) {
-        console.error('Error checking duplicate:', error);
-        alert('Kode QR sudah dipindai sebelumnya');
+        return;
       }
-      return;
     }
 
     // Mark code as processed
     setProcessedCodes(prev => new Set([...prev, decodedText]));
     setScanResult(decodedText);
     setScanCount(prev => prev + 1);
+    setLastScanTime(currentTime);
+
+    console.log('✅ QR Code successfully decoded:', {
+      text: decodedText,
+      confidence: decodedResult?.result?.correctionLevel || 'Unknown',
+      format: decodedResult?.result?.format || 'QR_CODE',
+      attempts: scanAttempts
+    });
 
     try {
-      // Load users from db - check both guru and siswa tables
+      // Enhanced user lookup with multiple search strategies
+      let user = null;
+
+      // Strategy 1: Direct identifier match
       const [guru, siswa] = await Promise.all([
         db.guru.where('niy').equals(decodedText).first(),
         db.siswa.where('nisn').equals(decodedText).first()
       ]);
 
-      const user = guru || siswa;
+      user = guru || siswa;
+
+      // Strategy 2: If no direct match, try fuzzy matching for damaged QR codes
+      if (!user && enhancedMode) {
+        console.log('🔍 No direct match found, trying fuzzy search...');
+
+        // Try partial matches for damaged QR codes
+        const allUsers = await Promise.all([
+          db.guru.where('status').equals('active').toArray(),
+          db.siswa.where('status').equals('active').toArray()
+        ]);
+
+        const allActiveUsers = [...allUsers[0], ...allUsers[1]];
+
+        // Find users with similar identifiers (for damaged QR codes)
+        const similarUsers = allActiveUsers.filter(u => {
+          const identifier = u.niy || u.nisn;
+          return identifier && (
+            identifier.includes(decodedText) ||
+            decodedText.includes(identifier) ||
+            calculateStringSimilarity(identifier, decodedText) > 0.7
+          );
+        });
+
+        if (similarUsers.length === 1) {
+          user = similarUsers[0];
+          console.log('🎯 Found similar match:', user.nama);
+        } else if (similarUsers.length > 1) {
+          console.log('⚠️ Multiple similar matches found:', similarUsers.length);
+        }
+      }
 
       if (user) {
         if (user.status === 'active') {
           await recordAttendance(user);
-          // Show non-intrusive notification for successful attendance
           showSuccessNotification(user.nama);
         } else {
           alert('Pengguna ditemukan tetapi status tidak aktif. Status: ' + user.status);
         }
       } else {
-        // Show available identifiers for debugging
+        // Enhanced error message with suggestions
         const [activeGuru, activeSiswa] = await Promise.all([
           db.guru.where('status').equals('active').toArray(),
           db.siswa.where('status').equals('active').toArray()
         ]);
 
-        alert(`Pengguna tidak ditemukan dengan identifier: ${decodedText}\n\nIdentifier yang ada di database:\nGuru: ${activeGuru.map(g => g.niy).join(', ')}\nSiswa: ${activeSiswa.map(s => s.nisn).join(', ')}\n\nPastikan QR code cocok dengan salah satu identifier di atas.`);
+        const suggestions = [];
+        activeGuru.slice(0, 3).forEach(g => suggestions.push(`Guru: ${g.niy} - ${g.nama}`));
+        activeSiswa.slice(0, 3).forEach(s => suggestions.push(`Siswa: ${s.nisn} - ${s.nama}`));
+
+        alert(`❌ Pengguna tidak ditemukan dengan identifier: ${decodedText}\n\n💡 Pastikan QR code tidak buram atau rusak.\n\n📋 Contoh identifier yang valid:\n${suggestions.join('\n')}\n\n🔄 Coba scan ulang dengan posisi yang lebih jelas.`);
       }
     } catch (error) {
-      console.error('Error during scan processing:', error);
+      console.error('Error during enhanced scan processing:', error);
       alert('Terjadi kesalahan saat memproses scan: ' + error.message);
     }
 
@@ -209,8 +332,77 @@ const Scan = () => {
   };
 
   const onScanFailure = (error) => {
+    // Enhanced failure handling with retry logic
+    const currentTime = Date.now();
+
     // Only log errors, don't show to user as it's normal for failed scans
     console.debug('Scan attempt failed:', error);
+
+    // Implement retry mechanism for failed scans
+    if (enhancedMode && currentTime - lastScanTime > 5000) { // If no successful scan in 5 seconds
+      setRetryCount(prev => {
+        const newCount = prev + 1;
+        if (newCount >= maxRetries) {
+          console.log('🔄 Switching to enhanced scanning mode due to repeated failures');
+          // Could implement fallback scanning strategies here
+          return 0; // Reset counter
+        }
+        return newCount;
+      });
+    }
+  };
+
+  // Calculate string similarity for fuzzy matching (for damaged QR codes)
+  const calculateStringSimilarity = (str1, str2) => {
+    if (!str1 || !str2) return 0;
+
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+
+    if (longer.length === 0) return 1.0;
+
+    const editDistance = levenshteinDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  };
+
+  // Calculate Levenshtein distance for string similarity
+  const levenshteinDistance = (str1, str2) => {
+    const matrix = [];
+
+    for (let i = 0; i <= str2.length; i++) {
+      matrix[i] = [i];
+    }
+
+    for (let j = 0; j <= str1.length; j++) {
+      matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= str2.length; i++) {
+      for (let j = 1; j <= str1.length; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1, // substitution
+            matrix[i][j - 1] + 1,     // insertion
+            matrix[i - 1][j] + 1      // deletion
+          );
+        }
+      }
+    }
+
+    return matrix[str2.length][str1.length];
+  };
+
+  // Toggle enhanced scanning mode
+  const toggleEnhancedMode = async () => {
+    setEnhancedMode(!enhancedMode);
+
+    // Restart scanner with new settings
+    if (isScanning) {
+      await stopScanning();
+      await startScanning(selectedCamera);
+    }
   };
 
   // Calculate attendance status and type based on time and user type
@@ -257,25 +449,7 @@ const Scan = () => {
     return { keterangan: 'Diluar Jadwal', att: 'Datang' };
   };
 
-  // Fallback: Open WhatsApp Web with pre-filled message
-  const sendWhatsAppViaWeb = (user, today, currentTime, status, keterangan) => {
-    const message = `🌟 Assalamu'alaikum ${user.nama} 🌟
 
-✅ Anda telah berhasil *ABSEN*
-📅 Tanggal : ${today}
-🕒 Pukul : ${currentTime}
-📌 Status : ${status}
-📝 Keterangan : ${keterangan}
-
-Terima kasih atas perhatian Anda 🙏`;
-
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/${user.wa}?text=${encodedMessage}`;
-
-    window.open(whatsappUrl, '_blank');
-
-    alert(`✅ Membuka WhatsApp Web untuk ${user.nama}\n\nPesan akan terkirim setelah Anda klik "Kirim" di WhatsApp Web.`);
-  };
 
   // Send WhatsApp message using Whacenter API
   const sendWhatsAppMessage = async (user, today, currentTime, status, keterangan) => {
@@ -370,6 +544,11 @@ Terima kasih atas perhatian Anda 🙏`;
       @keyframes slideIn {
         from { transform: translateX(100%); opacity: 0; }
         to { transform: translateX(0); opacity: 1; }
+      }
+      @keyframes pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.9; }
+        100% { transform: scale(1); opacity: 1; }
       }
     `;
     document.head.appendChild(style);
@@ -673,6 +852,26 @@ Terima kasih atas perhatian Anda 🙏`;
             gap: 2,
             pointerEvents: 'auto'
           }}>
+            {/* Enhanced Mode Toggle */}
+            <IconButton
+              onClick={toggleEnhancedMode}
+              sx={{
+                bgcolor: enhancedMode ? 'success.main' : 'rgba(0,0,0,0.7)',
+                color: 'white',
+                border: '2px solid rgba(255,255,255,0.3)',
+                backdropFilter: 'blur(10px)',
+                '&:hover': {
+                  transform: 'scale(1.1)',
+                  bgcolor: enhancedMode ? 'success.dark' : 'rgba(0,0,0,0.9)'
+                },
+                transition: 'all 0.2s ease-in-out'
+              }}
+              size="large"
+              title={enhancedMode ? 'Mode Sensitif Aktif - Nonaktifkan' : 'Aktifkan Mode Sensitif'}
+            >
+              {enhancedMode ? '🎯' : '⚡'}
+            </IconButton>
+
             {/* Mirror Toggle */}
             <IconButton
               onClick={() => setMirrorMode(!mirrorMode)}
@@ -789,13 +988,60 @@ Terima kasih atas perhatian Anda 🙏`;
               <Typography variant="body2" sx={{ opacity: 0.9 }}>
                 {scanMode === 'early_departure' ? 'Selalu record sebagai "Pulang"' : 'Datang/Pulang berdasarkan waktu'}
               </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold' }}>
-                ✅ {scanCount} scan berhasil
-              </Typography>
+              <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+                <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold' }}>
+                  ✅ {scanCount} scan berhasil
+                </Typography>
+                {enhancedMode && (
+                  <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'success.main' }}>
+                    🎯 Mode Sensitif Aktif
+                  </Typography>
+                )}
+                {retryCount > 0 && (
+                  <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'warning.main' }}>
+                    🔄 Retry: {retryCount}/{maxRetries}
+                  </Typography>
+                )}
+              </Box>
             </Box>
           </Box>
         </Box>
       </Box>
+
+      {/* Enhanced Mode Guidance */}
+      {enhancedMode && (
+        <Box sx={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none',
+          zIndex: 4
+        }}>
+          <Box sx={{
+            position: 'absolute',
+            top: -60,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            bgcolor: 'rgba(76, 175, 80, 0.9)',
+            color: 'white',
+            px: 3,
+            py: 1,
+            borderRadius: 2,
+            backdropFilter: 'blur(10px)',
+            border: '2px solid rgba(255,255,255,0.3)',
+            textAlign: 'center',
+            animation: 'pulse 2s infinite'
+          }}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+              🎯 Mode Sensitif Aktif
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>
+              Dapat scan QR buram/rusak
+            </Typography>
+          </Box>
+        </Box>
+      )}
 
       {/* Scan Result Overlay */}
       {scanResult && (

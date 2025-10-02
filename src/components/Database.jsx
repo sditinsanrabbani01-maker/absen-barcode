@@ -3,9 +3,9 @@ import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead
 import { Search as SearchIcon } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { CloudUpload, CloudDownload, GetApp, Publish } from '@mui/icons-material';
-import { db } from '../database';
+import { db, clearAllData, resetApplication } from '../database';
 import { DatabaseService, supabase } from '../config/supabase';
-import { syncManager } from '../services/SyncManager';
+import { syncManager, realtimeManager } from '../services/SyncManager';
 
 const Database = ({ mode }) => {
   // State management
@@ -44,18 +44,52 @@ const Database = ({ mode }) => {
   const [dataSource, setDataSource] = useState('local'); // 'local' or 'supabase'
 
   useEffect(() => {
+    // ============================================================================
+    // NEW: Real-time subscriptions instead of polling-based sync
+    // ============================================================================
+
     // Initial load with loading state
     loadData(true);
 
-    // Listen for sync status changes and reload data when sync completes
-    const unsubscribe = syncManager.onSyncStatus((status) => {
-      if (status.type === 'sync_completed' || status.type === 'remote_sync_completed') {
-        console.log('🔄 Database component detected sync completion, reloading data...');
+    // Setup real-time subscriptions for all relevant tables
+    const tablesToSubscribe = ['guru', 'siswa']; // Only subscribe to main tables
+    const subscriptions = [];
+
+    tablesToSubscribe.forEach(tableName => {
+      const subscription = realtimeManager.subscribeToTable(tableName, (change) => {
+        console.log(`🔄 Real-time change in Database component:`, change);
+
+        // Reload data when any change occurs
+        loadData();
+
+        // Show notification to user about real-time update
+        if (change.eventType === 'INSERT') {
+          console.log(`✅ New ${change.tableName} record added`);
+        } else if (change.eventType === 'UPDATE') {
+          console.log(`📝 ${change.tableName} record updated`);
+        } else if (change.eventType === 'DELETE') {
+          console.log(`🗑️ ${change.tableName} record deleted`);
+        }
+      });
+
+      subscriptions.push(subscription);
+    });
+
+    // Listen for connection status changes
+    const connectionUnsubscribe = realtimeManager.onConnectionStatus((status) => {
+      console.log('🌐 Database component connection status:', status);
+      if (status.online) {
+        // Reload data when coming back online
         loadData();
       }
     });
 
-    return unsubscribe;
+    // Cleanup function
+    return () => {
+      console.log('🔌 Cleaning up Database component subscriptions');
+      subscriptions.forEach(sub => sub.unsubscribe());
+      connectionUnsubscribe();
+    };
   }, []);
 
   // Search filtering effect
@@ -653,6 +687,20 @@ const Database = ({ mode }) => {
     XLSX.writeFile(wb, "template_data.xlsx");
   };
 
+  // Reset all data
+  const handleResetAllData = async () => {
+    try {
+      await resetApplication();
+      await loadData();
+      setSelectedGuru([]);
+      setSelectedSiswa([]);
+      alert('✅ Semua data berhasil direset ke kondisi awal');
+    } catch (error) {
+      console.error('Error resetting data:', error);
+      alert('❌ Gagal mereset data: ' + error.message);
+    }
+  };
+
   // Export to Excel
   const handleExportExcel = () => {
     const allData = [
@@ -682,7 +730,7 @@ const Database = ({ mode }) => {
             />
           ) : (
             <Chip
-              label={dataSource === 'supabase' ? '☁️ Data dari Supabase' : '💾 Data Lokal'}
+              label={dataSource === 'supabase' ? '⚡ Real-time Sync Aktif' : '💾 Data Lokal'}
               color={dataSource === 'supabase' ? 'success' : 'default'}
               variant="outlined"
             />
@@ -720,19 +768,19 @@ const Database = ({ mode }) => {
           <Typography variant="body2" component="div">
             {dataSource === 'supabase' ? (
               <>
-                <strong>☁️ Mode Cloud Database:</strong><br/>
-                • 📊 Data tersinkronisasi dengan Supabase<br/>
-                • 🔄 Auto-sync background aktif<br/>
-                • 🌐 Real-time updates dari cloud<br/>
-                • 💾 Backup otomatis ke lokal
+                <strong>⚡ Mode Real-time Database:</strong><br/>
+                • 📡 Real-time subscriptions aktif<br/>
+                • 🔄 Update otomatis antar device<br/>
+                • 🌐 Sinkronisasi real-time dengan Supabase<br/>
+                • 💾 Data tersimpan di cloud dan lokal
               </>
             ) : (
               <>
                 <strong>💾 Mode Local Database:</strong><br/>
                 • 📱 Aplikasi siap digunakan offline<br/>
                 • ✅ Semua fitur tetap berfungsi<br/>
-                • 📋 Data akan sync ketika online<br/>
-                • 🔄 Queue system aktif untuk sync nanti
+                • 📡 Real-time subscriptions siap aktifkan<br/>
+                • 🔄 Auto-activate saat online
               </>
             )}
           </Typography>
@@ -741,7 +789,7 @@ const Database = ({ mode }) => {
         <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>
           {initialLoading ?
             '⏳ Mohon tunggu sebentar, sistem sedang memuat...' :
-            `💡 Status: ${dataSource === 'supabase' ? 'Tersinkronisasi dengan cloud' : 'Siap digunakan offline'}`
+            `💡 Status: ${dataSource === 'supabase' ? 'Real-time sync aktif' : 'Mode offline siap'}`
           }
         </Typography>
       </Box>
@@ -817,6 +865,18 @@ const Database = ({ mode }) => {
           disabled={selectedGuru.length === 0 && selectedSiswa.length === 0}
         >
           📋 Mutasi ({selectedGuru.length + selectedSiswa.length})
+        </Button>
+        <Button
+          variant="contained"
+          color="error"
+          onClick={() => {
+            if (confirm('⚠️ Yakin ingin menghapus SEMUA data? Aksi ini tidak dapat dibatalkan!')) {
+              handleResetAllData();
+            }
+          }}
+          sx={{ ml: 2 }}
+        >
+          🗑️ Reset Semua Data
         </Button>
       </Box>
 

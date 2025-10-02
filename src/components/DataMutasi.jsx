@@ -202,9 +202,18 @@ const DataMutasi = ({ mode }) => {
 
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Data Mutasi/Keluar - Mode: {mode}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4" gutterBottom>
+          Data Mutasi/Keluar - Mode: {mode}
+        </Typography>
+        <Button
+          variant="outlined"
+          onClick={() => window.open('/database', '_blank')}
+          sx={{ ml: 2 }}
+        >
+          👁️ Lihat Database Utama
+        </Button>
+      </Box>
       <Tabs value={tabValue} onChange={handleTabChange}>
         <Tab label="Guru Tidak Aktif" />
         <Tab label="Siswa Tidak Aktif" />

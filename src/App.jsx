@@ -33,7 +33,7 @@ import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import Presensi from './components/Presensi';
 import { DatabaseService } from './config/supabase';
-import { syncManager } from './services/SyncManager';
+import { syncManager, realtimeManager } from './services/SyncManager';
 import { AuthService } from './services/AuthService';
 import SyncStatus from './components/SyncStatus';
 
@@ -66,68 +66,55 @@ function App() {
     }
   }, []);
 
-  // Auto-sync from Supabase to local storage on app load (only if authenticated)
+  // ============================================================================
+  // NEW: Real-time system initialization instead of polling-based sync
+  // ============================================================================
   useEffect(() => {
     if (isAuthenticated) {
-      const initializeSync = async () => {
+      const initializeRealtimeSystem = async () => {
         try {
-          console.log('🚀 Initializing sync system...');
+          console.log('🚀 Initializing real-time system...');
 
-          // First, try to sync from remote if online and Supabase configured
+          // Initialize local database
+          try {
+            const { db } = await import('./database.js');
+            await db.open();
+            console.log('💾 Local database initialized');
+          } catch (localError) {
+            console.error('❌ Local database initialization failed:', localError);
+          }
+
+          // Check if Supabase is configured and available
           if (navigator.onLine && import.meta.env.VITE_SUPABASE_URL) {
-            console.log('🌐 Online: Starting remote sync...');
             try {
+              // Initial data load from Supabase (one-time)
+              console.log('🌐 Online: Loading initial data from Supabase...');
               const syncResults = await DatabaseService.autoSyncFromSupabase();
-              console.log('✅ Initial sync from Supabase completed:', syncResults);
+              console.log('✅ Initial data load from Supabase completed:', syncResults);
 
-              // Save sync timestamp and mark Supabase as available
+              // Mark Supabase as available
               localStorage.setItem('last_supabase_sync', new Date().toISOString());
               localStorage.setItem('supabase_data_available', 'true');
               console.log('☁️ Supabase data loaded successfully');
-            } catch (supabaseError) {
-              console.warn('⚠️ Initial Supabase sync failed, falling back to local data:', supabaseError.message);
-              localStorage.setItem('supabase_data_available', 'false');
 
-              // Try to initialize local data if Supabase fails
-              try {
-                const { db } = await import('./database.js');
-                await db.open();
-                console.log('💾 Local database initialized as fallback');
-              } catch (localError) {
-                console.error('❌ Both Supabase and local database failed:', localError);
-              }
+            } catch (supabaseError) {
+              console.warn('⚠️ Initial Supabase load failed, using local data:', supabaseError.message);
+              localStorage.setItem('supabase_data_available', 'false');
             }
           } else {
             console.log('📴 Offline or Supabase not configured, using local data only');
             localStorage.setItem('supabase_data_available', 'false');
-
-            // Ensure local database is ready
-            try {
-              const { db } = await import('./database.js');
-              await db.open();
-              console.log('💾 Local database ready for offline use');
-            } catch (localError) {
-              console.error('❌ Local database initialization failed:', localError);
-            }
           }
 
-          // Start automatic sync manager regardless of initial sync result
-          syncManager.startAutoSync();
-
-          console.log('✅ Sync system initialized');
+          console.log('✅ Real-time system initialized');
         } catch (error) {
-          console.error('❌ Sync initialization failed:', error);
-          // Start sync manager anyway for offline functionality
-          syncManager.startAutoSync();
+          console.error('❌ Real-time system initialization failed:', error);
         }
       };
 
-      initializeSync();
+      initializeRealtimeSystem();
 
-      // Cleanup on unmount
-      return () => {
-        syncManager.stopAutoSync();
-      };
+      // No cleanup needed for real-time subscriptions (handled by individual components)
     }
   }, [isAuthenticated]);
 

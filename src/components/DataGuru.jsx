@@ -120,20 +120,28 @@ const DataGuru = ({ mode }) => {
     try {
       const exitData = data.filter(item => selected.includes(item.id));
       const inactiveData = exitData.map(item => ({
-        ...item,
+        nama: item.nama,
+        niy: item.niy,
+        jabatan: item.jabatan,
+        sebagai: item.sebagai,
+        email: item.email,
+        wa: item.wa,
         status: 'exit',
         tanggal_keluar: exitForm.tanggal_keluar,
-        alasan: exitForm.alasan
+        alasan: exitForm.alasan,
+        created_at: item.created_at,
+        updated_at: new Date().toISOString()
       }));
 
-      // Update selected teachers to exit status
+      // Update selected teachers to exit status and add to inactive table
       for (const id of selected) {
         await DatabaseService.update(TABLES.GURU, id, { status: 'exit' });
       }
 
-      // Add to inactive table
+      // Add to inactive table using direct database access (since inactive tables aren't in Supabase)
       if (inactiveData.length > 0) {
-        await DatabaseService.bulkCreate(TABLES.GURU_INACTIVE, inactiveData);
+        const { db } = await import('../database.js');
+        await db.guru_inactive.bulkAdd(inactiveData);
       }
 
       // Refresh data
@@ -222,6 +230,13 @@ const DataGuru = ({ mode }) => {
             </Button>
           </>
         )}
+        <Button
+          variant="outlined"
+          onClick={() => window.open('/data-mutasi', '_blank')}
+          sx={{ ml: 2 }}
+        >
+          👁️ Lihat Data Mutasi
+        </Button>
       </Box>
       <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }}>

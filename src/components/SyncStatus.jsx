@@ -26,85 +26,73 @@ import SyncProblemIcon from '@mui/icons-material/SyncProblem';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { syncManager } from '../services/SyncManager';
+import WifiIcon from '@mui/icons-material/Wifi';
+import WifiOffIcon from '@mui/icons-material/WifiOff';
+import { syncManager, realtimeManager } from '../services/SyncManager';
 
 const SyncStatus = () => {
-  const [syncStatus, setSyncStatus] = useState(syncManager.getSyncStatus());
-  const [showProgress, setShowProgress] = useState(false);
+  // ============================================================================
+  // NEW: Real-time status instead of polling-based sync status
+  // ============================================================================
+  const [realtimeStatus, setRealtimeStatus] = useState(realtimeManager.getRealtimeStatus());
+  const [connectionStatus, setConnectionStatus] = useState(realtimeManager.getConnectionStatus());
   const [snackbar, setSnackbar] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
   const [historyDialog, setHistoryDialog] = useState(false);
 
   useEffect(() => {
-    // Listen for sync status updates
-    const unsubscribe = syncManager.onSyncStatus((status) => {
-      setSyncStatus(syncManager.getSyncStatus());
+    // ============================================================================
+    // NEW: Listen for real-time changes instead of sync status
+    // ============================================================================
+    const unsubscribeRealtime = realtimeManager.onRealtimeStatus((change) => {
+      console.log('📡 Real-time change detected in SyncStatus:', change);
 
-      // Handle different status types
-      switch (status.type) {
-        case 'sync_started':
-          setShowProgress(true);
-          setSnackbar({ type: 'info', message: 'Sinkronisasi dimulai...' });
+      // Show notification for real-time changes
+      switch (change.eventType) {
+        case 'INSERT':
+          setSnackbar({ type: 'success', message: `✅ Data baru ditambahkan: ${change.tableName}` });
           break;
-        case 'sync_completed':
-          setShowProgress(false);
-          setSnackbar({ type: 'success', message: 'Sinkronisasi berhasil' });
+        case 'UPDATE':
+          setSnackbar({ type: 'info', message: `📝 Data diperbarui: ${change.tableName}` });
           break;
-        case 'sync_error':
-          setShowProgress(false);
-          setSnackbar({ type: 'error', message: `Error sinkronisasi: ${status.error}` });
-          break;
-        case 'remote_sync_started':
-          setSnackbar({ type: 'info', message: 'Mengunduh data dari cloud...' });
-          break;
-        case 'remote_sync_completed':
-          setSnackbar({ type: 'success', message: 'Data cloud berhasil diunduh' });
-          break;
-        case 'remote_sync_error':
-          setSnackbar({ type: 'error', message: `Error mengunduh data: ${status.error}` });
-          break;
-        case 'offline_queued':
-          setSnackbar({ type: 'warning', message: `${status.count} operasi menunggu sinkronisasi` });
-          break;
-        case 'offline_queue_cleared':
-          setSnackbar({ type: 'success', message: 'Semua operasi offline telah disinkronisasi' });
-          break;
-        case 'manual_sync_started':
-          setShowProgress(true);
-          setSnackbar({ type: 'info', message: 'Sinkronisasi manual dimulai...' });
+        case 'DELETE':
+          setSnackbar({ type: 'warning', message: `🗑️ Data dihapus: ${change.tableName}` });
           break;
         default:
           break;
       }
+
+      // Update status
+      setRealtimeStatus(realtimeManager.getRealtimeStatus());
     });
 
-    return unsubscribe;
+    // Listen for connection status changes
+    const unsubscribeConnection = realtimeManager.onConnectionStatus((status) => {
+      console.log('🌐 Connection status changed in SyncStatus:', status);
+      setConnectionStatus(realtimeManager.getConnectionStatus());
+
+      if (status.online) {
+        setSnackbar({ type: 'success', message: '🌐 Koneksi internet tersambung - Real-time sync aktif' });
+      } else {
+        setSnackbar({ type: 'warning', message: '📴 Koneksi internet terputus - Mode offline aktif' });
+      }
+    });
+
+    return () => {
+      unsubscribeRealtime();
+      unsubscribeConnection();
+    };
   }, []);
 
-  // Update status periodically
+  // Update status periodically (simplified)
   useEffect(() => {
     const interval = setInterval(() => {
-      setSyncStatus(syncManager.getSyncStatus());
-    }, 1000);
+      setRealtimeStatus(realtimeManager.getRealtimeStatus());
+      setConnectionStatus(realtimeManager.getConnectionStatus());
+    }, 5000); // Reduced frequency since we have real-time updates
 
     return () => clearInterval(interval);
   }, []);
-
-  const handleManualSync = async () => {
-    try {
-      await syncManager.triggerManualSync();
-    } catch (error) {
-      setSnackbar({ type: 'error', message: `Manual sync failed: ${error.message}` });
-    }
-  };
-
-  const handleRemoteSync = async () => {
-    try {
-      await syncManager.syncFromRemote();
-    } catch (error) {
-      setSnackbar({ type: 'error', message: `Remote sync failed: ${error.message}` });
-    }
-  };
 
   const handlePopoverOpen = (event) => {
     setAnchorEl(event.currentTarget);
@@ -114,36 +102,28 @@ const SyncStatus = () => {
     setAnchorEl(null);
   };
 
-  const getSyncIcon = () => {
-    if (!syncStatus.isOnline) {
-      return <CloudOffIcon color="error" />;
+  const getRealtimeIcon = () => {
+    if (!realtimeStatus.isOnline) {
+      return <WifiOffIcon color="error" />;
     }
 
-    if (syncStatus.syncInProgress) {
-      return <SyncIcon className="spinning" color="primary" />;
+    if (realtimeStatus.activeSubscriptions > 0) {
+      return <WifiIcon color="success" />;
     }
 
-    if (syncStatus.offlineQueueLength > 0) {
-      return <SyncProblemIcon color="warning" />;
-    }
-
-    return <CloudDoneIcon color="success" />;
+    return <CloudOffIcon color="warning" />;
   };
 
-  const getSyncTooltip = () => {
-    if (!syncStatus.isOnline) {
-      return 'Tidak ada koneksi internet';
+  const getRealtimeTooltip = () => {
+    if (!realtimeStatus.isOnline) {
+      return 'Tidak ada koneksi internet - Mode offline';
     }
 
-    if (syncStatus.syncInProgress) {
-      return 'Sinkronisasi sedang berlangsung...';
+    if (realtimeStatus.activeSubscriptions > 0) {
+      return `Real-time sync aktif - ${realtimeStatus.activeSubscriptions} tabel tersambung`;
     }
 
-    if (syncStatus.offlineQueueLength > 0) {
-      return `${syncStatus.offlineQueueLength} operasi menunggu sinkronisasi`;
-    }
-
-    return 'Sinkronisasi aktif';
+    return 'Real-time sync tidak aktif';
   };
 
   const open = Boolean(anchorEl);
@@ -151,48 +131,29 @@ const SyncStatus = () => {
   return (
     <>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {/* Sync Status Icon */}
-        <Tooltip title={getSyncTooltip()}>
+        {/* Real-time Status Icon */}
+        <Tooltip title={getRealtimeTooltip()}>
           <IconButton
             onClick={handlePopoverOpen}
             size="small"
-            sx={{
-              animation: syncStatus.syncInProgress ? 'spin 1s linear infinite' : 'none',
-              '@keyframes spin': {
-                '0%': { transform: 'rotate(0deg)' },
-                '100%': { transform: 'rotate(360deg)' }
-              }
-            }}
           >
             <Badge
-              badgeContent={syncStatus.offlineQueueLength}
-              color="error"
+              badgeContent={realtimeStatus.activeSubscriptions}
+              color="primary"
               max={99}
             >
-              {getSyncIcon()}
+              {getRealtimeIcon()}
             </Badge>
           </IconButton>
         </Tooltip>
 
-        {/* Manual Sync Button */}
-        <Tooltip title="Sinkronisasi Manual">
+        {/* Real-time Status Indicator */}
+        <Tooltip title="Status Real-time">
           <IconButton
-            onClick={handleManualSync}
-            disabled={!syncStatus.isOnline || syncStatus.syncInProgress}
             size="small"
+            disabled
           >
-            <RefreshIcon />
-          </IconButton>
-        </Tooltip>
-
-        {/* Remote Sync Button */}
-        <Tooltip title="Sinkronisasi dari Cloud">
-          <IconButton
-            onClick={handleRemoteSync}
-            disabled={!syncStatus.isOnline || syncStatus.syncInProgress}
-            size="small"
-          >
-            <CloudDoneIcon />
+            {realtimeStatus.isOnline ? <WifiIcon color="success" /> : <WifiOffIcon color="error" />}
           </IconButton>
         </Tooltip>
       </Box>
@@ -207,7 +168,7 @@ const SyncStatus = () => {
         </Box>
       )}
 
-      {/* Status Popover */}
+      {/* Real-time Status Popover */}
       <Popover
         open={open}
         anchorEl={anchorEl}
@@ -221,90 +182,72 @@ const SyncStatus = () => {
           horizontal: 'center',
         }}
       >
-        <Box sx={{ p: 2, minWidth: 250 }}>
+        <Box sx={{ p: 2, minWidth: 300 }}>
           <Typography variant="h6" gutterBottom>
-            Status Sinkronisasi
+            ⚡ Status Real-time
           </Typography>
 
           <List dense>
             <ListItem>
               <ListItemText
                 primary="Status Koneksi"
-                secondary={syncStatus.isOnline ? 'Online - Sinkronisasi aktif' : 'Offline - Mode lokal aktif'}
+                secondary={realtimeStatus.isOnline ? '🌐 Online - Real-time aktif' : '📴 Offline - Mode lokal aktif'}
               />
             </ListItem>
 
             <ListItem>
               <ListItemText
-                primary="Operasi Offline"
-                secondary={syncStatus.offlineQueueLength > 0 ?
-                  `${syncStatus.offlineQueueLength} menunggu sinkronisasi` :
-                  'Tidak ada operasi offline'
+                primary="Subscriptions Aktif"
+                secondary={`${realtimeStatus.activeSubscriptions} tabel tersambung untuk real-time updates`}
+              />
+            </ListItem>
+
+            <ListItem>
+              <ListItemText
+                primary="Tabel Real-time"
+                secondary={realtimeStatus.subscriptionTables.length > 0 ?
+                  realtimeStatus.subscriptionTables.join(', ') :
+                  'Belum ada tabel tersambung'
                 }
               />
             </ListItem>
 
             <ListItem>
               <ListItemText
-                primary="Sinkronisasi Terakhir"
-                secondary={syncStatus.lastSyncTime ?
-                  new Date(syncStatus.lastSyncTime).toLocaleString('id-ID') :
-                  'Belum pernah'
+                primary="Mode Operasi"
+                secondary={realtimeStatus.isOnline ?
+                  '⚡ Real-time sync dengan Supabase' :
+                  '💾 Mode offline - auto sync saat online'
                 }
               />
             </ListItem>
-
-            <ListItem>
-              <ListItemText
-                primary="Riwayat Sinkronisasi"
-                secondary={`${syncStatus.totalHistoryCount} operasi tersimpan`}
-              />
-            </ListItem>
-
-            {syncStatus.conflictCount > 0 && (
-              <ListItem>
-                <ListItemText
-                  primary="Konflik Data"
-                  secondary={`${syncStatus.conflictCount} konflik terselesaikan`}
-                />
-              </ListItem>
-            )}
           </List>
 
           {/* Offline Mode Explanation */}
-          {!syncStatus.isOnline && (
+          {!realtimeStatus.isOnline && (
             <Box sx={{ mt: 2, p: 2, bgcolor: 'warning.light', borderRadius: 1, border: '1px solid', borderColor: 'warning.main' }}>
               <Typography variant="subtitle2" color="warning.dark" gutterBottom>
                 📴 Mode Offline Aktif
               </Typography>
               <Typography variant="body2" color="warning.dark">
-                • Semua input absensi tetap tersimpan di lokal<br/>
-                • Data akan otomatis tersinkronisasi ketika online<br/>
+                • Semua input tetap tersimpan di lokal<br/>
+                • Real-time subscriptions akan aktif otomatis saat online<br/>
                 • Tidak ada data yang hilang selama offline
               </Typography>
             </Box>
           )}
 
-          <Divider sx={{ my: 1 }} />
-
-          {/* Recent Sync History */}
-          {syncStatus.syncHistory && syncStatus.syncHistory.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Riwayat Terbaru:
+          {/* Real-time Mode Explanation */}
+          {realtimeStatus.isOnline && realtimeStatus.activeSubscriptions > 0 && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'success.light', borderRadius: 1, border: '1px solid', borderColor: 'success.main' }}>
+              <Typography variant="subtitle2" color="success.dark" gutterBottom>
+                ⚡ Real-time Mode Aktif
               </Typography>
-              <Box sx={{ maxHeight: 150, overflow: 'auto' }}>
-                {syncStatus.syncHistory.slice(0, 5).map((item) => (
-                  <Box key={item.id} sx={{ mb: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.75rem' }}>
-                      {new Date(item.timestamp).toLocaleTimeString('id-ID')}
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontSize: '0.75rem', fontWeight: 'medium' }}>
-                      {item.message}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
+              <Typography variant="body2" color="success.dark">
+                • {realtimeStatus.activeSubscriptions} tabel tersambung untuk real-time updates<br/>
+                • Perubahan data langsung terlihat di semua device<br/>
+                • Tidak perlu refresh manual
+              </Typography>
             </Box>
           )}
 
@@ -313,36 +256,23 @@ const SyncStatus = () => {
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Chip
-                label={syncStatus.isOnline ? 'Online' : 'Offline'}
-                color={syncStatus.isOnline ? 'success' : 'error'}
+                label={realtimeStatus.isOnline ? 'Online' : 'Offline'}
+                color={realtimeStatus.isOnline ? 'success' : 'error'}
                 size="small"
               />
 
-              {syncStatus.syncInProgress && (
+              {realtimeStatus.activeSubscriptions > 0 && (
                 <Chip
-                  label="Sinkronisasi..."
-                  color="primary"
-                  size="small"
-                />
-              )}
-
-              {syncStatus.offlineQueueLength > 0 && (
-                <Chip
-                  label={`${syncStatus.offlineQueueLength} Queue`}
-                  color="warning"
+                  label={`${realtimeStatus.activeSubscriptions} Real-time`}
+                  color="success"
                   size="small"
                 />
               )}
             </Box>
 
-            <Button
-              size="small"
-              startIcon={<HistoryIcon />}
-              onClick={() => setHistoryDialog(true)}
-              sx={{ fontSize: '0.75rem' }}
-            >
-              Riwayat
-            </Button>
+            <Typography variant="caption" color="text.secondary">
+              Real-time subscriptions aktif
+            </Typography>
           </Box>
         </Box>
       </Popover>
@@ -365,7 +295,7 @@ const SyncStatus = () => {
         )}
       </Snackbar>
 
-      {/* Sync History Dialog */}
+      {/* Real-time Status Dialog */}
       <Dialog
         open={historyDialog}
         onClose={() => setHistoryDialog(false)}
@@ -373,47 +303,74 @@ const SyncStatus = () => {
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <HistoryIcon /> Riwayat Sinkronisasi
+          <HistoryIcon /> Status Real-time
         </DialogTitle>
         <DialogContent>
           <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
-            {syncStatus.syncHistory && syncStatus.syncHistory.length > 0 ? (
-              syncStatus.syncHistory.map((item) => (
-                <Box
-                  key={item.id}
-                  sx={{
-                    p: 2,
-                    mb: 1,
-                    border: '1px solid #e0e0e0',
-                    borderRadius: 1,
-                    bgcolor: item.type.includes('error') ? 'error.light' : 'background.paper'
-                  }}
-                >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Typography variant="subtitle2">
-                      {new Date(item.timestamp).toLocaleString('id-ID')}
-                    </Typography>
-                    <Chip
-                      label={item.type.replace('_', ' ').toUpperCase()}
-                      size="small"
-                      color={item.type.includes('error') ? 'error' : item.type.includes('sync') ? 'primary' : 'default'}
-                    />
-                  </Box>
-                  <Typography variant="body2">
-                    {item.message}
-                  </Typography>
-                  {item.details.error && (
-                    <Typography variant="body2" color="error" sx={{ mt: 1, fontFamily: 'monospace' }}>
-                      {item.details.error}
-                    </Typography>
-                  )}
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                Belum ada riwayat sinkronisasi
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                📊 Informasi Real-time
               </Typography>
-            )}
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2 }}>
+                <Box sx={{ p: 2, bgcolor: 'primary.light', borderRadius: 1, color: 'white' }}>
+                  <Typography variant="h6">🌐 Koneksi</Typography>
+                  <Typography variant="body2">
+                    {realtimeStatus.isOnline ? 'Online - Real-time aktif' : 'Offline - Mode lokal'}
+                  </Typography>
+                </Box>
+                <Box sx={{ p: 2, bgcolor: 'success.light', borderRadius: 1, color: 'white' }}>
+                  <Typography variant="h6">📡 Subscriptions</Typography>
+                  <Typography variant="body2">
+                    {realtimeStatus.activeSubscriptions} tabel tersambung
+                  </Typography>
+                </Box>
+                <Box sx={{ p: 2, bgcolor: 'info.light', borderRadius: 1, color: 'white' }}>
+                  <Typography variant="h6">⚡ Mode</Typography>
+                  <Typography variant="body2">
+                    {realtimeStatus.isOnline ? 'Real-time sync aktif' : 'Siap sync otomatis'}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                📋 Tabel Real-time
+              </Typography>
+              {realtimeStatus.subscriptionTables.length > 0 ? (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {realtimeStatus.subscriptionTables.map((table) => (
+                    <Chip
+                      key={table}
+                      label={table}
+                      color="primary"
+                      variant="outlined"
+                    />
+                  ))}
+                </Box>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Belum ada tabel tersambung untuk real-time updates
+                </Typography>
+              )}
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                💡 Cara Kerja Real-time
+              </Typography>
+              <Typography variant="body2" component="div">
+                • <strong>Insert:</strong> Data baru otomatis muncul di semua device<br/>
+                • <strong>Update:</strong> Perubahan data langsung terlihat di UI<br/>
+                • <strong>Delete:</strong> Data langsung hilang dari list<br/>
+                • <strong>Offline:</strong> Data tetap tersimpan lokal, sync otomatis saat online<br/>
+                • <strong>Cross-device:</strong> Semua perubahan tersinkronisasi antar device
+              </Typography>
+            </Box>
           </Box>
         </DialogContent>
       </Dialog>
