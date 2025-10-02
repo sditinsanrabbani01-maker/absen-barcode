@@ -224,20 +224,24 @@ const SiGesit = ({ mode }) => {
         const attendancePercentage = activeSchoolDaysCount > 0 ?
           Math.min((totalPresentDays / activeSchoolDaysCount) * 100, 100) : 0;
 
-        // Rating system based on attendance quality first, then earliest arrival time:
-        // 1. Most Tepat Waktu (TW) - higher is better (weight: 10000)
-        // 2. Fewest Tahap 1 (T1) - lower is better (penalty: -1000)
-        // 3. Fewest Tahap 2 (T2) - lower is better (penalty: -100)
-        // 4. Most Dinas Luar (DL) - higher is better (weight: 10)
-        // 5. Earliest average check-in time (lower minutes = better) - tiebreaker
+        // NEW RATING SYSTEM - Aturan Penilaian Si Gesit (Hierarki Baru):
+        // 1. Tingkat Kehadiran paling tinggi (attendancePercentage * 100000)
+        // 2. Tingkat Tepat Waktu Paling Banyak (tepatWaktu * 10000)
+        // 3. Tingkat Tahap 1 Paling Sedikit (penalty -tahap1 * 1000)
+        // 4. Tingkat Tahap 2 Paling Sedikit (penalty -tahap2 * 10000)
+        // 5. Rata-Rata Waktu datang paling cepat (earlier time = higher score)
 
         // Calculate average check-in time (in minutes since midnight)
         const avgCheckInTime = calculateAverageCheckInTime(identifier, attendanceRecords) || 9999; // Default high value if no data
 
-        // Create a composite score prioritizing attendance quality, then time as tiebreaker
-        // Higher scores are better: more TW, fewer T1/T2, more DL, earlier time
-        // T1 is more tolerated than T2 (T1 penalty < T2 penalty)
-        const ratingScore = (tepatWaktu * 100000) - (tahap1 * 100) - (tahap2 * 1000) + (dinasLuar * 10) - (avgCheckInTime / 100);
+        // NEW COMPOSITE SCORE - Mengikuti aturan penilaian baru
+        // Higher scores are better: higher attendance %, more TW, fewer T1/T2, earlier time
+        const ratingScore =
+          (attendancePercentage * 100000) +           // 1. Tingkat Kehadiran (bobot tertinggi)
+          (tepatWaktu * 10000) +                     // 2. Jumlah Tepat Waktu (bobot tinggi)
+          (-tahap1 * 1000) +                         // 3. Penalti Tahap 1 (sedikit = lebih baik)
+          (-tahap2 * 10000) +                        // 4. Penalti Tahap 2 (sangat sedikit = lebih baik)
+          ((9999 - avgCheckInTime) / 100);           // 5. Waktu datang (lebih cepat = skor lebih tinggi)
 
         // Determine color based on attendance pattern
         let performanceColor = 'success'; // Green - perfect
@@ -268,23 +272,39 @@ const SiGesit = ({ mode }) => {
         };
       });
 
-      // Sort by rating score with tiebreakers (descending) - higher score = better performance (more TW, fewer violations, earlier time)
+      // Sort by NEW rating score with UPDATED tiebreakers (descending)
+      // Higher score = better performance according to new rules
       personScores.sort((a, b) => {
-        // First: rating score (higher is better - more TW, fewer violations, earlier time)
+        // Primary: rating score (higher is better - follows new evaluation hierarchy)
         if (b.ratingScore !== a.ratingScore) {
           return b.ratingScore - a.ratingScore;
         }
 
-        // Tiebreaker 1: attendance percentage (higher is better)
+        // Tiebreaker 1: attendance percentage (higher is better) - Rule #1
         if (b.attendance.attendancePercentage !== a.attendance.attendancePercentage) {
           return b.attendance.attendancePercentage - a.attendance.attendancePercentage;
         }
 
-        // Tiebreaker 2: fewer absences (lower is better)
-        const aAbsences = a.attendance.izin + a.attendance.sakit + a.attendance.cuti + a.attendance.tanpaKeterangan;
-        const bAbsences = b.attendance.izin + b.attendance.sakit + b.attendance.cuti + b.attendance.tanpaKeterangan;
-        if (aAbsences !== bAbsences) {
-          return aAbsences - bAbsences; // Lower absences first
+        // Tiebreaker 2: most punctual (more TW is better) - Rule #2
+        if (b.attendance.tepatWaktu !== a.attendance.tepatWaktu) {
+          return b.attendance.tepatWaktu - a.attendance.tepatWaktu;
+        }
+
+        // Tiebreaker 3: fewest Tahap 1 (lower T1 is better) - Rule #3
+        if (a.attendance.tahap1 !== b.attendance.tahap1) {
+          return a.attendance.tahap1 - b.attendance.tahap1; // Lower T1 first
+        }
+
+        // Tiebreaker 4: fewest Tahap 2 (lower T2 is better) - Rule #4
+        if (a.attendance.tahap2 !== b.attendance.tahap2) {
+          return a.attendance.tahap2 - b.attendance.tahap2; // Lower T2 first
+        }
+
+        // Tiebreaker 5: earliest average arrival time (lower minutes = better) - Rule #5
+        const aAvgTime = calculateAverageCheckInTime(a.identifier, attendanceRecords) || 9999;
+        const bAvgTime = calculateAverageCheckInTime(b.identifier, attendanceRecords) || 9999;
+        if (aAvgTime !== bAvgTime) {
+          return aAvgTime - bAvgTime; // Earlier time (lower minutes) first
         }
 
         // Final tiebreaker: alphabetical by name (A-Z)
@@ -387,11 +407,11 @@ const SiGesit = ({ mode }) => {
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        🏆 Si Gesit - Sistem Perangkingan Kehadiran
+        🏆 Si Gesit - Sistem Penilaian Berdasarkan Aturan Baru
       </Typography>
 
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Sistem perangkingan kehadiran berdasarkan ketepatan waktu dan konsistensi kehadiran
+        Sistem perangkingan kehadiran berdasarkan hierarki penilaian baru: Kehadiran → Ketepatan Waktu → Disiplin → Kedisiplinan
       </Typography>
 
       {/* Filter Controls */}
@@ -522,7 +542,7 @@ const SiGesit = ({ mode }) => {
       {topPerformers.length > 0 && (
         <>
           <Typography variant="h5" gutterBottom sx={{ mt: 4, mb: 2 }}>
-            🏅 Top 5 Paling Rajin
+            🏅 Top 5 Si Gesit (Berdasarkan Aturan Baru)
           </Typography>
 
           <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -893,42 +913,69 @@ const SiGesit = ({ mode }) => {
       )}
 
       {/* Information Card */}
-      <Card sx={{ mt: 4, bgcolor: 'info.main', color: 'white' }}>
+      <Card sx={{ mt: 4, bgcolor: 'success.main', color: 'white' }}>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            ℹ️ Cara Perhitungan Perangkingan Si Gesit
+            🏆 Aturan Tingkat Penilaian Si Gesit (Model Baru)
           </Typography>
           <Typography variant="body2" component="div">
-            <strong>Periode:</strong> Dari tanggal 1 bulan mulai sampai akhir bulan sampai (berdasarkan hari aktif sekolah)<br/>
-            <strong>Hari Aktif Sekolah:</strong> Hari dimana ada minimal 1 orang yang mengisi absensi atau dinas luar<br/>
-            <strong>Tanpa Keterangan (TK):</strong> Hanya dihitung pada hari aktif sekolah dimana orang tersebut tidak hadir dan tidak ada perizinan<br/>
-            <strong>Sistem Rating Hierarki:</strong><br/>
-            1️⃣ <strong>Paling banyak Tepat Waktu (TW)</strong> → Skor +100,000 per TW<br/>
-            2️⃣ <strong>Paling sedikit Tahap 1 (T1)</strong> → Penalti -100 per T1 (lebih toleran)<br/>
-            3️⃣ <strong>Paling sedikit Tahap 2 (T2)</strong> → Penalti -1,000 per T2 (kurang toleran)<br/>
-            4️⃣ <strong>Paling banyak Dinas Luar (DL)</strong> → Skor +10 per DL<br/>
-            5️⃣ <strong>Datang paling cepat (rata-rata waktu absen)</strong> → Lebih cepat = lebih baik<br/>
-            <strong>Tiebreaker jika skor sama:</strong><br/>
-            • Tingkat kehadiran tertinggi<br/>
-            • Jumlah ketidakhadiran terendah<br/>
-            • Urutan abjad nama<br/>
-            <strong>Tingkat Kehadiran:</strong> (Total Hadir / Hari Aktif Sekolah) × 100%<br/>
-            <strong>Kode Status Kehadiran:</strong><br/>
-             • <strong>TW:</strong> Tepat Waktu (hanya dari status "Datang")<br/>
-             • <strong>DL:</strong> Dinas Luar<br/>
-             • <strong>T1:</strong> Tahap 1 (terlambat, hanya dari "Datang")<br/>
-             • <strong>T2:</strong> Tahap 2 (terlambat, hanya dari "Datang")<br/>
-             • <strong>TK:</strong> Tanpa Keterangan (termasuk hanya "Pulang" tanpa "Datang" ❌)<br/>
-             • <strong>I:</strong> Izin<br/>
-             • <strong>S:</strong> Sakit<br/>
-             • <strong>C:</strong> Cuti<br/>
-             • <strong>H:</strong> Hadir (umum, hanya dari "Datang")<br/>
-            <strong>Kode Warna:</strong><br/>
-            • 🟢 <strong>Hijau:</strong> Sempurna (tidak ada keterlambatan)<br/>
-            • 🟡 <strong>Kuning:</strong> Ada Tahap 1<br/>
-            • 🔘 <strong>Abu-abu:</strong> Ada Tahap 2<br/>
-            • 🔴 <strong>Merah:</strong> Banyak tidak hadir/tanpa keterangan<br/>
-            <strong>Rating Bintang:</strong> Peringkat 1-5 mendapat 5-1 bintang
+            <strong>🎯 Hierarki Penilaian Baru (Prioritas 1-5):</strong><br/>
+            <strong>1️⃣ Tingkat Kehadiran paling tinggi</strong><br/>
+            • Bobot: attendancePercentage × 100,000<br/>
+            • Karyawan dengan persentase kehadiran tertinggi mendapat skor tertinggi<br/>
+            • Formula: (Total Hari Hadir ÷ Hari Aktif Sekolah) × 100%<br/><br/>
+
+            <strong>2️⃣ Tingkat Tepat Waktu Paling Banyak</strong><br/>
+            • Bobot: tepatWaktu × 10,000<br/>
+            • Karyawan dengan TW (Tepat Waktu) terbanyak mendapat skor lebih tinggi<br/>
+            • Hanya dihitung dari status "Datang" dengan waktu tepat<br/><br/>
+
+            <strong>3️⃣ Tingkat Tahap 1 Paling Sedikit</strong><br/>
+            • Penalti: -tahap1 × 1,000<br/>
+            • Karyawan dengan T1 (Tahap 1/Terlambat ringan) lebih sedikit mendapat skor lebih tinggi<br/>
+            • Lebih toleran dibanding Tahap 2<br/><br/>
+
+            <strong>4️⃣ Tingkat Tahap 2 Paling Sedikit</strong><br/>
+            • Penalti: -tahap2 × 10,000<br/>
+            • Karyawan dengan T2 (Tahap 2/Terlambat berat) lebih sedikit mendapat skor lebih tinggi<br/>
+            • Penalti lebih berat karena terlambat lebih parah<br/><br/>
+
+            <strong>5️⃣ Rata-Rata Waktu datang paling cepat</strong><br/>
+            • Bonus: (9999 - avgCheckInTime) ÷ 100<br/>
+            • Karyawan dengan rata-rata waktu datang lebih cepat mendapat skor lebih tinggi<br/>
+            • Waktu dalam menit sejak tengah malam (lebih kecil = lebih baik)<br/><br/>
+
+            <strong>🔧 Tiebreaker Hierarchy (Jika skor sama):</strong><br/>
+            1. Tingkat kehadiran tertinggi (aturan #1)<br/>
+            2. Jumlah TW terbanyak (aturan #2)<br/>
+            3. Jumlah T1 tersedikit (aturan #3)<br/>
+            4. Jumlah T2 tersedikit (aturan #4)<br/>
+            5. Rata-rata waktu datang tercepat (aturan #5)<br/>
+            6. Urutan abjad nama (tiebreaker final)<br/><br/>
+
+            <strong>📊 Definisi Status:</strong><br/>
+            • <strong>TW:</strong> Tepat Waktu (absen di waktu yang ditentukan)<br/>
+            • <strong>T1:</strong> Tahap 1 (terlambat ringan/sedang)<br/>
+            • <strong>T2:</strong> Tahap 2 (terlambat berat)<br/>
+            • <strong>DL:</strong> Dinas Luar (dianggap hadir)<br/>
+            • <strong>TK:</strong> Tanpa Keterangan (tidak hadir tanpa alasan)<br/>
+            • <strong>I:</strong> Izin (perizinan resmi)<br/>
+            • <strong>S:</strong> Sakit (dengan surat dokter)<br/>
+            • <strong>C:</strong> Cuti (izin cuti resmi)<br/><br/>
+
+            <strong>🎨 Kode Warna Performa:</strong><br/>
+            • 🟢 <strong>Hijau:</strong> Perfect (hanya TW dan DL)<br/>
+            • 🟡 <strong>Kuning:</strong> Good (ada T1 tapi tidak ada T2)<br/>
+            • 🔘 <strong>Abu-abu:</strong> Fair (ada T2)<br/>
+            • 🔴 <strong>Merah:</strong> Poor (banyak TK/I/S/C)<br/><br/>
+
+            <strong>⭐ Sistem Bintang:</strong><br/>
+            • Peringkat 1: ⭐⭐⭐⭐⭐ (5 bintang)<br/>
+            • Peringkat 2: ⭐⭐⭐⭐ (4 bintang)<br/>
+            • Peringkat 3: ⭐⭐⭐ (3 bintang)<br/>
+            • Peringkat 4: ⭐⭐ (2 bintang)<br/>
+            • Peringkat 5: ⭐ (1 bintang)<br/>
+            • Peringkat 6+: Tidak mendapat bintang
           </Typography>
         </CardContent>
       </Card>

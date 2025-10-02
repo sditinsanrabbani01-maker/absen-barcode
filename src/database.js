@@ -4,10 +4,11 @@ import Dexie from 'dexie';
 export const db = new Dexie('AbsenBarcodeDB');
 
 db.version(1).stores({
+  users: '++id, username, password, role, nama, email, wa, status, last_login, created_at, updated_at',
   guru: '++id, nama, niy, jabatan, sebagai, email, wa, status, pendidikan, mk_start_year, mk_start_month, gaji_pokok, tunjangan_kinerja, tunjangan_umum, tunjangan_istri, tunjangan_anak, tunjangan_kepala_sekolah, tunjangan_wali_kelas, honor_bendahara, keterangan, custom_base_salary, created_at, updated_at',
   siswa: '++id, nama, nisn, jabatan, sebagai, email, wa, status, created_at, updated_at',
-  attendance: '++id, tanggal, identifier, nama, jabatan, jam, status, keterangan, att, sebagai, wa, email, created_at, updated_at',
-  perizinan: '++id, tanggal, tanggal_mulai, tanggal_selesai, identifier, nama, status, jenis_izin, keterangan, sebagai, created_at, updated_at',
+  attendance: '++id, [identifier+tanggal+jam], tanggal, identifier, nama, jabatan, jam, status, keterangan, att, sebagai, wa, email, created_at, updated_at',
+  perizinan: '++id, [identifier+tanggal], tanggal, tanggal_mulai, tanggal_selesai, identifier, nama, status, jenis_izin, keterangan, sebagai, created_at, updated_at',
   penggajian: '++id, identifier, nama, jabatan, sebagai, bulan, tahun, gaji_pokok, tunjangan_kinerja, tunjangan_umum, tunjangan_istri, tunjangan_anak, tunjangan_kepala_sekolah, tunjangan_wali_kelas, honor_bendahara, potongan, total_gaji, status_bayar, created_at, updated_at',
   attendance_settings: '++id, type, start_time, end_time, att, label, group_name, created_at, updated_at',
   school_settings: '++id, nama_sekolah, npsn, alamat_desa, alamat_kecamatan, alamat_kabupaten, alamat_provinsi, alamat_negara, nama_kepala_sekolah, niy_kepala_sekolah, created_at, updated_at',
@@ -64,7 +65,12 @@ const initializeSampleData = async () => {
         { type: 'siswa', start_time: '08:00', end_time: '12:00', att: 'Datang', label: 'Tahap 2', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
         { type: 'siswa', start_time: '12:00', end_time: '17:00', att: 'Pulang', label: 'Pulang', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
       ];
-      promises.push(db.attendance_settings.bulkAdd(defaultSettings));
+      try {
+        await db.attendance_settings.bulkAdd(defaultSettings);
+        console.log('✅ Default attendance settings added');
+      } catch (error) {
+        console.log('ℹ️ Attendance settings already exist or error:', error.message);
+      }
     }
 
     // Add default school settings if empty
@@ -83,7 +89,58 @@ const initializeSampleData = async () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      promises.push(db.school_settings.add(defaultSchoolSettings));
+      try {
+        await db.school_settings.add(defaultSchoolSettings);
+        console.log('✅ Default school settings added');
+      } catch (error) {
+        console.log('ℹ️ School settings already exist or error:', error.message);
+      }
+    }
+
+    // Add default users if empty
+    const usersCount = await db.users.count();
+    if (usersCount === 0) {
+      const defaultUsers = [
+        {
+          username: 'admin',
+          password: 'admin123', // In production, this should be hashed
+          role: 'Admin',
+          nama: 'Administrator',
+          email: 'admin@school.com',
+          wa: '08123456789',
+          status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          username: 'operator',
+          password: 'operator123',
+          role: 'Operator',
+          nama: 'Operator Sekolah',
+          email: 'operator@school.com',
+          wa: '08198765432',
+          status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          username: 'bendahara',
+          password: 'bendahara123',
+          role: 'Bendahara',
+          nama: 'Bendahara Sekolah',
+          email: 'bendahara@school.com',
+          wa: '08134567890',
+          status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ];
+      try {
+        await db.users.bulkAdd(defaultUsers);
+        console.log('✅ Default users added');
+      } catch (error) {
+        console.log('ℹ️ Users already exist or error:', error.message);
+      }
     }
 
     await Promise.all(promises);

@@ -8,11 +8,15 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SearchIcon from '@mui/icons-material/Search';
 import SettingsIcon from '@mui/icons-material/Settings';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import SyncIcon from '@mui/icons-material/Sync';
+import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import { db } from '../database';
 import IzinForm from './IzinForm';
 import DataPerizinan from './DataPerizinan';
 import RekapAbsen from './RekapAbsen';
 import * as XLSX from 'xlsx';
+import { syncManager } from '../services/SyncManager';
+import { DatabaseService } from '../config/supabase';
 
 const Absensi = ({ mode }) => {
   const [tabValue, setTabValue] = useState(0);
@@ -67,6 +71,9 @@ const Absensi = ({ mode }) => {
   const [rekapPage, setRekapPage] = useState(0);
   const [rekapRowsPerPage, setRekapRowsPerPage] = useState(20);
 
+  // Sync state
+  const [syncInProgress, setSyncInProgress] = useState(false);
+
   useEffect(() => {
     loadAttendanceData();
     loadAttendanceSettings();
@@ -80,11 +87,26 @@ const Absensi = ({ mode }) => {
       setUsers([...guru, ...siswa]);
     });
 
+    // Listen for sync status changes and reload data when sync completes
+    const unsubscribe = syncManager.onSyncStatus((status) => {
+      if (status.type === 'sync_completed' || status.type === 'remote_sync_completed') {
+        console.log('🔄 Absensi component detected sync completion, reloading data...');
+        loadAttendanceData();
+        loadAttendanceSettings();
+        loadAvailableJabatan();
+        // Reload users data after sync
+        Promise.all([db.guru.toArray(), db.siswa.toArray()]).then(([guru, siswa]) => {
+          setUsers([...guru, ...siswa]);
+        });
+      }
+    });
+
     // Register global refresh function
     window.refreshAbsensi = loadAttendanceData;
 
     return () => {
       delete window.refreshAbsensi;
+      unsubscribe();
     };
   }, []);
 
@@ -1139,6 +1161,31 @@ Terima kasih atas perhatiannya.`;
     }, 2000);
   }
 
+  // Sync functions
+  const handleManualSync = async () => {
+    setSyncInProgress(true);
+    try {
+      await syncManager.triggerManualSync();
+      alert('✅ Sinkronisasi manual berhasil');
+    } catch (error) {
+      alert('❌ Sinkronisasi gagal: ' + error.message);
+    } finally {
+      setSyncInProgress(false);
+    }
+  };
+
+  const handleRemoteSync = async () => {
+    setSyncInProgress(true);
+    try {
+      await syncManager.syncFromRemote();
+      alert('✅ Sinkronisasi dari cloud berhasil');
+    } catch (error) {
+      alert('❌ Sinkronisasi dari cloud gagal: ' + error.message);
+    } finally {
+      setSyncInProgress(false);
+    }
+  };
+
   const downloadTemplate = () => {
     // Create sample data for the template
     const templateData = [
@@ -1807,9 +1854,47 @@ Terima kasih atas perhatiannya.`;
 
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Absensi - Mode: {mode}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4">
+          Absensi - Mode: {mode}
+        </Typography>
+
+        {/* Sync Controls */}
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              startIcon={<SyncIcon />}
+              onClick={handleManualSync}
+              disabled={syncInProgress}
+              size="small"
+            >
+              {syncInProgress ? '🔄 Sync...' : '🔄 Sync Manual'}
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<CloudDoneIcon />}
+              onClick={handleRemoteSync}
+              disabled={syncInProgress}
+              size="small"
+            >
+              ☁️ Dari Cloud
+            </Button>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Sync Info Banner */}
+      <Box sx={{ mb: 2, p: 2, bgcolor: 'success.light', color: 'success.dark', borderRadius: 1, border: '1px solid', borderColor: 'success.main' }}>
+        <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+          ✅ Mode Hybrid: Online + Offline Support Penuh
+        </Typography>
+        <Typography variant="body2" color="success.dark" component="div">
+          <strong>🌐 Online:</strong> Data tersinkronisasi otomatis dengan cloud<br/>
+          <strong>📴 Offline:</strong> Tetap bisa input absensi, data di-queue otomatis<br/>
+          <strong>🔄 Auto-Sync:</strong> Ketika online, semua perubahan ter-upload otomatis
+        </Typography>
+      </Box>
       <Tabs value={tabValue} onChange={handleTabChange}>
         <Tab label="QR Scan" />
         <Tab label="Absen Hari Ini" />

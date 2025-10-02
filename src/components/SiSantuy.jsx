@@ -253,14 +253,20 @@ const SiSantuy = ({ mode }) => {
         // Calculate average check-in time (in minutes since midnight)
         const avgCheckInTime = calculateAverageCheckInTime(identifier, attendanceRecords) || 9999;
 
-        // INVERTED SCORING FOR SI SANTUY - HIGHER SCORE = WORSE PERFORMANCE
-        // 1. Most izin/sakit (higher is worse)
-        // 2. Most TK (higher is worse)
-        // 3. Most T2 (higher is worse)
-        // 4. Most T1 (higher is worse)
-        // 5. Latest average arrival time (higher minutes = worse)
+        // NEW INVERTED SCORING FOR SI SANTUY - Kebalikan dari Si Gesit
+        // 1. Tingkat Kehadiran paling rendah (totalAbsences * 100000) - semakin banyak absen, semakin tinggi skor
+        // 2. Tingkat Tepat Waktu Paling Sedikit (penalty -tepatWaktu * 10000) - semakin sedikit TW, semakin tinggi skor
+        // 3. Tingkat Tahap 1 Paling Banyak (tahap1 * 1000) - semakin banyak T1, semakin tinggi skor
+        // 4. Tingkat Tahap 2 Paling Banyak (tahap2 * 10000) - semakin banyak T2, semakin tinggi skor
+        // 5. Rata-Rata Waktu datang paling lambat (avgCheckInTime / 10) - semakin telat, semakin tinggi skor
+
         const totalAbsences = izin + sakit + cuti + tanpaKeterangan;
-        const santuyScore = (totalAbsences * 10000) + (tanpaKeterangan * 1000) + (tahap2 * 100) + (tahap1 * 10) + (avgCheckInTime / 10);
+        const santuyScore =
+          (totalAbsences * 100000) +           // 1. Semakin banyak absen = skor lebih tinggi
+          (-tepatWaktu * 10000) +              // 2. Semakin sedikit TW = skor lebih tinggi
+          (tahap1 * 1000) +                    // 3. Semakin banyak T1 = skor lebih tinggi
+          (tahap2 * 10000) +                   // 4. Semakin banyak T2 = skor lebih tinggi
+          (avgCheckInTime / 10);               // 5. Semakin telat = skor lebih tinggi
 
         // INVERTED color logic - worse performance gets "better" colors for Si Santuy
         let performanceColor = 'error'; // Red - worst performance (best for Si Santuy)
@@ -295,22 +301,40 @@ const SiSantuy = ({ mode }) => {
       });
 
       // Sort by santuy score DESCENDING - HIGHER SCORE = BETTER RANKING (more "santuy")
+      // Following INVERTED hierarchy: more absences, less punctual, more violations = higher rank
       personScores.sort((a, b) => {
-        // First: santuy score (higher is better - more absences, later times)
+        // Primary: santuy score (higher is better - follows inverted evaluation hierarchy)
         if (b.santuyScore !== a.santuyScore) {
           return b.santuyScore - a.santuyScore;
         }
 
-        // Tiebreaker 1: more total absences (higher is better)
+        // Tiebreaker 1: more total absences (higher is better) - Inverted rule #1
         const aAbsences = a.attendance.totalAbsences;
         const bAbsences = b.attendance.totalAbsences;
         if (aAbsences !== bAbsences) {
-          return bAbsences - aAbsences;
+          return bAbsences - aAbsences; // More absences first
         }
 
-        // Tiebreaker 2: more TK (higher is better)
-        if (b.attendance.tanpaKeterangan !== a.attendance.tanpaKeterangan) {
-          return b.attendance.tanpaKeterangan - a.attendance.tanpaKeterangan;
+        // Tiebreaker 2: fewer TW (less punctual is better) - Inverted rule #2
+        if (b.attendance.tepatWaktu !== a.attendance.tepatWaktu) {
+          return a.attendance.tepatWaktu - b.attendance.tepatWaktu; // Fewer TW first
+        }
+
+        // Tiebreaker 3: more T1 (more violations is better) - Inverted rule #3
+        if (a.attendance.tahap1 !== b.attendance.tahap1) {
+          return b.attendance.tahap1 - a.attendance.tahap1; // More T1 first
+        }
+
+        // Tiebreaker 4: more T2 (more violations is better) - Inverted rule #4
+        if (a.attendance.tahap2 !== b.attendance.tahap2) {
+          return b.attendance.tahap2 - a.attendance.tahap2; // More T2 first
+        }
+
+        // Tiebreaker 5: later average arrival time (slower is better) - Inverted rule #5
+        const aAvgTime = calculateAverageCheckInTime(a.identifier, attendanceRecords) || 0;
+        const bAvgTime = calculateAverageCheckInTime(b.identifier, attendanceRecords) || 0;
+        if (aAvgTime !== bAvgTime) {
+          return bAvgTime - aAvgTime; // Later time (higher minutes) first
         }
 
         // Final tiebreaker: alphabetical by name (A-Z)
@@ -403,11 +427,11 @@ const SiSantuy = ({ mode }) => {
         background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #2a2a2a 100%)'
       }}>
         <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#ff6b35' }}>
-          😎 Si Santuy - Peringkat Paling Santai
+          🔥 Si Santuy - Kebalikan dari Si Gesit
         </Typography>
 
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-          Sistem perangkingan untuk mereka yang paling santai dalam kehadiran - semakin santai, semakin tinggi ranking! 🌙
+          Sistem perangkingan terbalik berdasarkan aturan baru: semakin banyak absen & telat, semakin tinggi peringkat! 🌶️
         </Typography>
 
         {/* Filter Controls */}
@@ -572,7 +596,7 @@ const SiSantuy = ({ mode }) => {
         {topPerformers.length > 0 && (
           <>
             <Typography variant="h5" gutterBottom sx={{ mt: 4, mb: 2, color: '#ff6b35' }}>
-              🔥 Top 5 Paling Santuy
+              🔥 Top 5 Si Santuy (Berdasarkan Aturan Terbalik)
             </Typography>
 
             <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -935,21 +959,56 @@ const SiSantuy = ({ mode }) => {
         <Card sx={{ mt: 4, bgcolor: 'rgba(255, 107, 53, 0.1)', border: '1px solid #ff6b35' }}>
           <CardContent>
             <Typography variant="h6" gutterBottom sx={{ color: '#ff6b35' }}>
-              😎 Aturan Si Santuy - Peringkat Santuy
+              🔥 Aturan Si Santuy - Kebalikan dari Si Gesit
             </Typography>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-              Sistem perangkingan terbalik untuk mereka yang paling santai dalam kehadiran<br/>
-              <strong>1.</strong> Izin/Sakit Paling Banyak → Skor +10,000 per hari<br/>
-              <strong>2.</strong> TK Paling Banyak → Skor +1,000 per hari<br/>
-              <strong>3.</strong> T2 Paling Banyak → Skor +100 per hari<br/>
-              <strong>4.</strong> T1 Paling Banyak → Skor +10 per hari<br/>
-              <strong>5.</strong> Rata-rata Datang Paling Lama → Semakin telat, semakin tinggi skor<br/>
-              <strong>Kode Warna:</strong><br/>
-              • 🔴 <strong>Merah:</strong> Sangat Santuy (banyak absen)<br/>
-              • 🟡 <strong>Kuning:</strong> Cukup Santuy<br/>
-              • 🔘 <strong>Abu-abu:</strong> Sedikit Santuy<br/>
-              • 🟢 <strong>Hijau:</strong> Kurang Santuy (terlalu disiplin)<br/>
-              <strong>Rating Api:</strong> Peringkat 1-5 mendapat 5-1 api
+            <Typography variant="body2" component="div" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+              <strong>🎯 Hierarki Penilaian Terbalik (Prioritas 1-5):</strong><br/>
+              <strong>1️⃣ Tingkat Kehadiran paling rendah</strong><br/>
+              • Bobot: totalAbsences × 100,000<br/>
+              • Karyawan dengan ketidakhadiran terbanyak mendapat skor tertinggi<br/>
+              • Formula: (Total Absen ÷ Hari Aktif Sekolah) × 100% (di-invert)<br/><br/>
+
+              <strong>2️⃣ Tingkat Tepat Waktu Paling Sedikit</strong><br/>
+              • Penalti: -tepatWaktu × 10,000<br/>
+              • Karyawan dengan TW (Tepat Waktu) tersedikit mendapat skor lebih tinggi<br/>
+              • Semakin sering terlambat = semakin baik untuk Si Santuy<br/><br/>
+
+              <strong>3️⃣ Tingkat Tahap 1 Paling Banyak</strong><br/>
+              • Bonus: tahap1 × 1,000<br/>
+              • Karyawan dengan T1 (terlambat ringan) terbanyak mendapat skor lebih tinggi<br/>
+              • Lebih banyak terlambat = lebih santuy<br/><br/>
+
+              <strong>4️⃣ Tingkat Tahap 2 Paling Banyak</strong><br/>
+              • Bonus: tahap2 × 10,000<br/>
+              • Karyawan dengan T2 (terlambat berat) terbanyak mendapat skor lebih tinggi<br/>
+              • Terlambat parah = sangat santuy<br/><br/>
+
+              <strong>5️⃣ Rata-Rata Waktu datang paling lambat</strong><br/>
+              • Bonus: avgCheckInTime ÷ 10<br/>
+              • Karyawan dengan rata-rata waktu datang lebih lambat mendapat skor lebih tinggi<br/>
+              • Semakin sering datang telat = semakin santuy<br/><br/>
+
+              <strong>🔧 Tiebreaker Hierarchy (Jika skor sama):</strong><br/>
+              1. Ketidakhadiran terbanyak (aturan #1 terbalik)<br/>
+              2. TW tersedikit (aturan #2 terbalik)<br/>
+              3. T1 terbanyak (aturan #3 terbalik)<br/>
+              4. T2 terbanyak (aturan #4 terbalik)<br/>
+              5. Rata-rata waktu datang terlambat (aturan #5 terbalik)<br/>
+              6. Urutan abjad nama (final tiebreaker)<br/><br/>
+
+              <strong>🎨 Kode Warna Santuy:</strong><br/>
+              • 🔴 <strong>Merah:</strong> Sangat Santuy (banyak absen, sering telat)<br/>
+              • 🟡 <strong>Kuning:</strong> Cukup Santuy (sedang absen/telat)<br/>
+              • 🔘 <strong>Abu-abu:</strong> Kurang Santuy (hanya beberapa kali telat)<br/>
+              • 🟢 <strong>Hijau:</strong> Tidak Santuy (terlalu disiplin, jarang absen)<br/><br/>
+
+              <strong>🌶️ Sistem Api:</strong><br/>
+              • Peringkat 1: 🔥🔥🔥🔥🔥 (5 api)<br/>
+              • Peringkat 2: 🔥🔥🔥🔥 (4 api)<br/>
+              • Peringkat 3: 🔥🔥🔥 (3 api)<br/>
+              • Peringkat 4: 🔥🔥 (2 api)<br/>
+              • Peringkat 5: 🔥 (1 api)<br/>
+              • Peringkat 6+: Tidak mendapat api
             </Typography>
           </CardContent>
         </Card>

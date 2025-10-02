@@ -10,7 +10,11 @@ import {
   Grid,
   LinearProgress,
   ThemeProvider,
-  createTheme
+  createTheme,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import { Whatshot } from '@mui/icons-material';
 import { db } from '../database';
@@ -37,23 +41,92 @@ const darkTheme = createTheme({
 });
 
 const SiSantuyStandalone = () => {
+  const [showFilters, setShowFilters] = useState(true);
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState(10);
   const [showResult, setShowResult] = useState(false);
-  const [topPerformer, setTopPerformer] = useState(null);
+  const [topFive, setTopFive] = useState([]);
+  const [animationStage, setAnimationStage] = useState(0); // 0: initial, 1: animating, 2: complete
+  const [visibleCount, setVisibleCount] = useState(0); // Track how many cards are visible
   const [loading, setLoading] = useState(false);
 
+  // Filter state
+  const [filters, setFilters] = useState({
+    startMonth: new Date().getMonth(),
+    startYear: new Date().getFullYear(),
+    endMonth: new Date().getMonth(),
+    endYear: new Date().getFullYear(),
+    status: 'all' // 'all', 'guru', 'siswa'
+  });
+
+  // Reset function to go back to initial state
+  const handleReset = () => {
+    setShowFilters(true);
+    setShowCountdown(false);
+    setCountdown(10);
+    setShowResult(false);
+    setTopFive([]);
+    setAnimationStage(0);
+    setVisibleCount(0);
+    setLoading(false);
+  };
+
+  // Handle filter form submission
+  const handleFilterSubmit = () => {
+    setShowFilters(false);
+    setShowCountdown(true);
+  };
+
+  // Handle filter changes
+  const handleFilterChange = (field, value) => {
+    setFilters(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
   useEffect(() => {
+    let timer;
     if (showCountdown && countdown > 0) {
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         setCountdown(countdown - 1);
       }, 1000);
-      return () => clearTimeout(timer);
     } else if (showCountdown && countdown === 0) {
-      // Countdown finished, calculate the result
-      calculateTopPerformer();
+      // Countdown finished, transition to results and calculate
+      console.log('⏰ Countdown finished, transitioning to results...');
+      setShowCountdown(false);
+      setShowResult(true);
+      calculateTopPerformerWithTimeout();
     }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [showCountdown, countdown]);
+
+  // Animation effect for dramatic reveal (5→4→3→2→1) with 2-second intervals
+  useEffect(() => {
+    if (showResult && topFive.length > 0) {
+      console.log('🔥 Starting dramatic reveal animation (5→4→3→2→1)...');
+      setAnimationStage(1);
+      setVisibleCount(0);
+
+      let i = 0;
+      const interval = setInterval(() => {
+        i++;
+        setVisibleCount(i);
+        console.log(`🔥 Revealing card ${i} of ${topFive.length}`);
+
+        if (i >= topFive.length) {
+          clearInterval(interval);
+          setAnimationStage(2);
+          console.log('✅ Dramatic reveal complete - All cards revealed!');
+        }
+      }, 2000); // ⬅️ setiap 2 detik kartu muncul
+
+      return () => clearInterval(interval);
+    }
+  }, [showResult, topFive]);
 
   const handleStarClick = () => {
     setShowCountdown(true);
@@ -61,11 +134,12 @@ const SiSantuyStandalone = () => {
 
   const calculateTopPerformer = async () => {
     setLoading(true);
+    console.log('🔄 Starting calculation for SiSantuy...');
+
     try {
-      // Calculate for current month
-      const now = new Date();
-      const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      // Calculate using selected filters
+      const startDate = new Date(filters.startYear, filters.startMonth, 1);
+      const endDate = new Date(filters.endYear, filters.endMonth + 1, 0);
 
       const startDateStr = startDate.getFullYear() + '-' +
         String(startDate.getMonth() + 1).padStart(2, '0') + '-' +
@@ -74,17 +148,27 @@ const SiSantuyStandalone = () => {
         String(endDate.getMonth() + 1).padStart(2, '0') + '-' +
         String(endDate.getDate()).padStart(2, '0');
 
+      console.log('📅 Filter applied:', {
+        startDate: startDateStr,
+        endDate: endDateStr,
+        status: filters.status
+      });
+
       // Get all attendance records for the current month
+      console.log('📊 Fetching attendance records...');
       const attendanceRecords = await db.attendance
         .where('tanggal')
         .between(startDateStr, endDateStr, true, true)
         .toArray();
+      console.log(`✅ Found ${attendanceRecords.length} attendance records`);
 
       // Get all perizinan records for the current month
+      console.log('📊 Fetching perizinan records...');
       const perizinanRecords = await db.perizinan
         .where('tanggal')
         .between(startDateStr, endDateStr, true, true)
         .toArray();
+      console.log(`✅ Found ${perizinanRecords.length} perizinan records`);
 
       // Calculate active school days
       const uniqueDates = new Set();
@@ -97,10 +181,23 @@ const SiSantuyStandalone = () => {
       });
       const activeSchoolDaysCount = uniqueDates.size;
 
-      // Get all people
-      const guru = await db.guru.where('status').equals('active').toArray();
-      const siswa = await db.siswa.where('status').equals('active').toArray();
-      const allPeople = [...guru, ...siswa];
+      // Get all people based on filter
+      console.log('👥 Fetching people data...');
+      let allPeople = [];
+
+      if (filters.status === 'all' || filters.status === 'guru') {
+        const guru = await db.guru.where('status').equals('active').toArray();
+        allPeople.push(...guru);
+        console.log(`✅ Found ${guru.length} active guru`);
+      }
+
+      if (filters.status === 'all' || filters.status === 'siswa') {
+        const siswa = await db.siswa.where('status').equals('active').toArray();
+        allPeople.push(...siswa);
+        console.log(`✅ Found ${siswa.length} active siswa`);
+      }
+
+      console.log(`✅ Total people for analysis: ${allPeople.length}`);
 
       // Calculate scores for each person - INVERTED LOGIC FOR SI SANTUY
       const personScores = allPeople.map(person => {
@@ -176,9 +273,20 @@ const SiSantuyStandalone = () => {
         // Calculate average check-in time
         const avgCheckInTime = calculateAverageCheckInTime(identifier, attendanceRecords) || 9999;
 
-        // INVERTED SCORING FOR SI SANTUY
+        // NEW INVERTED SCORING FOR SI SANTUY - Kebalikan dari Si Gesit
+        // 1. Tingkat Kehadiran paling rendah (totalAbsences * 100000) - semakin banyak absen, semakin tinggi skor
+        // 2. Tingkat Tepat Waktu Paling Sedikit (penalty -tepatWaktu * 10000) - semakin sedikit TW, semakin tinggi skor
+        // 3. Tingkat Tahap 1 Paling Banyak (tahap1 * 1000) - semakin banyak T1, semakin tinggi skor
+        // 4. Tingkat Tahap 2 Paling Banyak (tahap2 * 10000) - semakin banyak T2, semakin tinggi skor
+        // 5. Rata-Rata Waktu datang paling lambat (avgCheckInTime / 10) - semakin telat, semakin tinggi skor
+
         const totalAbsences = izin + sakit + cuti + tanpaKeterangan;
-        const santuyScore = (totalAbsences * 10000) + (tanpaKeterangan * 1000) + (tahap2 * 100) + (tahap1 * 10) + (avgCheckInTime / 10);
+        const santuyScore =
+          (totalAbsences * 100000) +           // 1. Semakin banyak absen = skor lebih tinggi
+          (-tepatWaktu * 10000) +              // 2. Semakin sedikit TW = skor lebih tinggi
+          (tahap1 * 1000) +                    // 3. Semakin banyak T1 = skor lebih tinggi
+          (tahap2 * 10000) +                   // 4. Semakin banyak T2 = skor lebih tinggi
+          (avgCheckInTime / 10);               // 5. Semakin telat = skor lebih tinggi
 
         return {
           identifier,
@@ -202,23 +310,88 @@ const SiSantuyStandalone = () => {
       });
 
       // Sort by santuy score DESCENDING - HIGHER SCORE = BETTER RANKING (more "santuy")
-      personScores.sort((a, b) => b.santuyScore - a.santuyScore);
+      // Following INVERTED hierarchy: more absences, less punctual, more violations = higher rank
+      personScores.sort((a, b) => {
+        // Primary: santuy score (higher is better - follows inverted evaluation hierarchy)
+        if (b.santuyScore !== a.santuyScore) {
+          return b.santuyScore - a.santuyScore;
+        }
 
-      // Get top performer
-      const top = personScores[0];
-      if (top) {
-        setTopPerformer({
-          ...top,
-          rank: 1,
-          stars: 5
-        });
-      }
+        // Tiebreaker 1: more total absences (higher is better) - Inverted rule #1
+        const aAbsences = a.attendance.totalAbsences;
+        const bAbsences = b.attendance.totalAbsences;
+        if (aAbsences !== bAbsences) {
+          return bAbsences - aAbsences; // More absences first
+        }
 
+        // Tiebreaker 2: fewer TW (less punctual is better) - Inverted rule #2
+        if (b.attendance.tepatWaktu !== a.attendance.tepatWaktu) {
+          return a.attendance.tepatWaktu - b.attendance.tepatWaktu; // Fewer TW first
+        }
+
+        // Tiebreaker 3: more T1 (more violations is better) - Inverted rule #3
+        if (a.attendance.tahap1 !== b.attendance.tahap1) {
+          return b.attendance.tahap1 - a.attendance.tahap1; // More T1 first
+        }
+
+        // Tiebreaker 4: more T2 (more violations is better) - Inverted rule #4
+        if (a.attendance.tahap2 !== b.attendance.tahap2) {
+          return b.attendance.tahap2 - a.attendance.tahap2; // More T2 first
+        }
+
+        // Tiebreaker 5: later average arrival time (slower is better) - Inverted rule #5
+        const aAvgTime = a.avgCheckInTime || 0;
+        const bAvgTime = b.avgCheckInTime || 0;
+        if (aAvgTime !== bAvgTime) {
+          return bAvgTime - aAvgTime; // Later time (higher minutes) first
+        }
+
+        // Final tiebreaker: alphabetical by name (A-Z)
+        return a.nama.localeCompare(b.nama);
+      });
+
+      // Get top 5 performers
+      const topFiveScores = personScores.slice(0, 5).map((p, i) => ({
+        ...p,
+        rank: i + 1,
+        stars: 5 - i, // Higher rank = more fire (rank 1 = 5 fire, rank 5 = 1 fire)
+      }));
+
+      setTopFive(topFiveScores);
+      setAnimationStage(0); // Reset animation stage
+      setVisibleCount(0); // Reset visible count
       setShowResult(true);
+      setLoading(false); // Make sure loading is set to false
+
+      console.log('✅ SiSantuy calculation completed:', {
+        totalPeople: allPeople.length,
+        topFiveCount: topFiveScores.length,
+        topPerformer: topFiveScores[0]?.nama
+      });
     } catch (error) {
-      console.error('Error calculating top performer:', error);
+      console.error('❌ Error calculating top performer:', error);
+      alert('Error menghitung peringkat: ' + error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Timeout wrapper for calculation
+  const calculateTopPerformerWithTimeout = async () => {
+    try {
+      console.log('🔄 Starting calculation with timeout...');
+      await Promise.race([
+        calculateTopPerformer(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Calculation timeout after 30 seconds')), 30000)
+        )
+      ]);
+      console.log('✅ Calculation completed successfully');
+    } catch (error) {
+      console.error('❌ Calculation failed or timed out:', error);
+      alert('Perhitungan gagal: ' + error.message);
+      // Reset to initial state on error
+      handleReset();
     }
   };
 
@@ -261,7 +434,7 @@ const SiSantuyStandalone = () => {
     ));
   };
 
-  if (!showCountdown && !showResult) {
+  if (showFilters) {
     return (
       <ThemeProvider theme={darkTheme}>
         <Box
@@ -279,38 +452,149 @@ const SiSantuyStandalone = () => {
             😎 Si Santuy Standalone
           </Typography>
           <Typography variant="h6" sx={{ color: '#b0b0b0', textAlign: 'center', mb: 4 }}>
-            Klik bintang untuk melihat pemenang Si Santuy bulan ini!
+            Pilih periode dan kategori untuk melihat pemenang Si Santuy!
           </Typography>
 
-          <Button
-            onClick={handleStarClick}
-            sx={{
-              width: 200,
-              height: 200,
-              borderRadius: '50%',
-              background: 'linear-gradient(45deg, #ff6b35 30%, #ff5722 90%)',
-              color: 'white',
-              fontSize: '4rem',
-              fontWeight: 'bold',
-              boxShadow: '0 8px 32px rgba(255, 107, 53, 0.3)',
-              '&:hover': {
-                background: 'linear-gradient(45deg, #ff5722 30%, #f44336 90%)',
-                transform: 'scale(1.1)',
-                boxShadow: '0 12px 40px rgba(255, 107, 53, 0.4)'
-              },
-              transition: 'all 0.3s ease'
-            }}
-          >
-            🌟
-          </Button>
+          <Card sx={{ minWidth: 400, maxWidth: 600, mx: 'auto', background: 'rgba(255, 255, 255, 0.05)' }}>
+            <CardContent sx={{ p: 4 }}>
+              <Typography variant="h6" gutterBottom sx={{ color: '#ff6b35', fontWeight: 'bold' }}>
+                🎯 Pengaturan Analisis
+              </Typography>
 
-          <Typography variant="body1" sx={{ color: '#b0b0b0', textAlign: 'center', mt: 3 }}>
-            Pemenang akan muncul setelah countdown 10 detik
-          </Typography>
+              {/* Date Range Selection */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: '#ff6b35' }}>
+                  📅 Periode Analisis
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ color: '#b0b0b0' }}>Bulan Mulai</InputLabel>
+                    <Select
+                      value={filters.startMonth}
+                      label="Bulan Mulai"
+                      onChange={(e) => handleFilterChange('startMonth', e.target.value)}
+                      sx={{
+                        color: 'white',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(255, 107, 53, 0.3)'
+                        }
+                      }}
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <MenuItem key={i} value={i}>
+                          {new Date(2000, i, 1).toLocaleDateString('id-ID', { month: 'long' })}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ color: '#b0b0b0' }}>Tahun Mulai</InputLabel>
+                    <Select
+                      value={filters.startYear}
+                      label="Tahun Mulai"
+                      onChange={(e) => handleFilterChange('startYear', e.target.value)}
+                      sx={{
+                        color: 'white',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(255, 107, 53, 0.3)'
+                        }
+                      }}
+                    >
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                        <MenuItem key={year} value={year}>{year}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ color: '#b0b0b0' }}>Bulan Akhir</InputLabel>
+                    <Select
+                      value={filters.endMonth}
+                      label="Bulan Akhir"
+                      onChange={(e) => handleFilterChange('endMonth', e.target.value)}
+                      sx={{
+                        color: 'white',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(255, 107, 53, 0.3)'
+                        }
+                      }}
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <MenuItem key={i} value={i}>
+                          {new Date(2000, i, 1).toLocaleDateString('id-ID', { month: 'long' })}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ color: '#b0b0b0' }}>Tahun Akhir</InputLabel>
+                    <Select
+                      value={filters.endYear}
+                      label="Tahun Akhir"
+                      onChange={(e) => handleFilterChange('endYear', e.target.value)}
+                      sx={{
+                        color: 'white',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(255, 107, 53, 0.3)'
+                        }
+                      }}
+                    >
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                        <MenuItem key={year} value={year}>{year}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+              </Box>
+
+              {/* Status Selection */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: '#ff6b35' }}>
+                  👥 Kategori Peserta
+                </Typography>
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: '#b0b0b0' }}>Status</InputLabel>
+                  <Select
+                    value={filters.status}
+                    label="Status"
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                    sx={{
+                      color: 'white',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: 'rgba(255, 107, 53, 0.3)'
+                      }
+                    }}
+                  >
+                    <MenuItem value="all">Semua (Guru & Siswa)</MenuItem>
+                    <MenuItem value="guru">Hanya Guru</MenuItem>
+                    <MenuItem value="siswa">Hanya Siswa</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+
+              <Button
+                onClick={handleFilterSubmit}
+                variant="contained"
+                size="large"
+                fullWidth
+                sx={{
+                  mt: 2,
+                  py: 2,
+                  background: 'linear-gradient(45deg, #ff6b35 30%, #ff5722 90%)',
+                  fontSize: '1.1rem',
+                  fontWeight: 'bold'
+                }}
+              >
+                🔥 Mulai Analisis Si Santuy
+              </Button>
+            </CardContent>
+          </Card>
         </Box>
       </ThemeProvider>
     );
   }
+
 
   if (showCountdown) {
     return (
@@ -385,7 +669,7 @@ const SiSantuyStandalone = () => {
           }}
         >
           <Typography variant="h3" gutterBottom sx={{ color: '#ff6b35', fontWeight: 'bold', textAlign: 'center' }}>
-            🔥 Pemenang Si Santuy Bulan Ini!
+            🔥 Pemenang Si Santuy (Aturan Terbalik) Bulan Ini!
           </Typography>
 
           {loading ? (
@@ -393,97 +677,134 @@ const SiSantuyStandalone = () => {
               <LinearProgress sx={{ width: 300, mb: 2, '& .MuiLinearProgress-bar': { bgcolor: '#ff6b35' } }} />
               <Typography variant="h6">Menghitung...</Typography>
             </Box>
-          ) : topPerformer ? (
-            <Card
-              sx={{
-                maxWidth: 600,
-                width: '100%',
-                background: 'linear-gradient(135deg, #2c2c2c 0%, #1a1a1a 100%)',
-                border: '3px solid #ff6b35',
-                boxShadow: '0 12px 40px rgba(255, 107, 53, 0.3)',
-                position: 'relative'
-              }}
-            >
-              {/* Rank Badge */}
+          ) : topFive.length > 0 ? (
+            <Box sx={{ width: '100%', maxWidth: 1200 }}>
+              {/* Clean Flex Layout */}
               <Box
                 sx={{
-                  position: 'absolute',
-                  top: -20,
-                  right: -20,
-                  width: 60,
-                  height: 60,
-                  borderRadius: '50%',
-                  backgroundColor: '#ff6b35',
                   display: 'flex',
-                  alignItems: 'center',
+                  gap: 4,
                   justifyContent: 'center',
-                  fontSize: '1.5rem',
-                  fontWeight: 'bold',
-                  color: 'white',
-                  boxShadow: 3
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  minHeight: 400
                 }}
               >
-                🔥
+                {topFive
+                  .slice()                     // copy array
+                  .reverse()                   // urutan jadi 5,4,3,2,1
+                  .slice(0, visibleCount)      // batasi sesuai counter
+                  .map((performer, index) => (
+                    <Card
+                      key={performer.identifier}
+                      sx={{
+                        width: 200,
+                        height: 280,
+                        opacity: 1,
+                        transform: 'scale(1)',
+                        transition: 'all 0.8s ease-out',
+                        background: 'linear-gradient(135deg, #2c2c2c 0%, #1a1a1a 100%)',
+                        border: '3px solid #ff6b35',
+                        boxShadow: '0 12px 40px rgba(255, 107, 53, 0.3)',
+                        zIndex: 5 - index
+                      }}
+                    >
+                      {/* Rank Badge */}
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -15,
+                          right: -15,
+                          width: 50,
+                          height: 50,
+                          borderRadius: '50%',
+                          backgroundColor: performer.rank === 1 ? '#ff6b35' : performer.rank === 2 ? '#ff5722' : performer.rank === 3 ? '#f44336' : performer.rank === 4 ? '#9c27b0' : '#607d8b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '1.2rem',
+                          fontWeight: 'bold',
+                          color: 'white',
+                          boxShadow: 2,
+                          zIndex: 10
+                        }}
+                      >
+                        {performer.rank}
+                      </Box>
+
+                      <CardContent sx={{ textAlign: 'center', p: 3, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <Avatar
+                          sx={{
+                            width: 60,
+                            height: 60,
+                            mx: 'auto',
+                            mb: 1,
+                            bgcolor: '#ff6b35',
+                            fontSize: '1.5rem',
+                            fontWeight: 'bold',
+                            boxShadow: '0 4px 12px rgba(255, 107, 53, 0.3)'
+                          }}
+                        >
+                          {performer.nama.charAt(0).toUpperCase()}
+                        </Avatar>
+
+                        <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold', mb: 1 }}>
+                          #{performer.rank}
+                        </Typography>
+
+                        <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold', mb: 1 }}>
+                          {performer.nama}
+                        </Typography>
+
+                        <Typography variant="caption" sx={{ color: '#b0b0b0', mb: 2 }}>
+                          {performer.jabatan}
+                        </Typography>
+
+                        {/* Fire Rating */}
+                        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                          {getStarRating(performer.stars)}
+                        </Box>
+
+                        {/* Special message for rank 1 */}
+                        {performer.rank === 1 && animationStage === 2 && (
+                          <Typography variant="caption" sx={{ color: '#ff6b35', fontWeight: 'bold' }}>
+                            🔥 JUARA 1
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
               </Box>
 
-              <CardContent sx={{ textAlign: 'center', p: 4 }}>
-                <Avatar
-                  sx={{
-                    width: 120,
-                    height: 120,
-                    mx: 'auto',
-                    mb: 3,
-                    bgcolor: '#ff6b35',
-                    fontSize: '3rem',
-                    fontWeight: 'bold',
-                    boxShadow: '0 8px 24px rgba(255, 107, 53, 0.3)'
-                  }}
-                >
-                  {topPerformer.nama.charAt(0).toUpperCase()}
-                </Avatar>
+              {/* Show message when animation is complete */}
+              {animationStage === 2 && (
+                <Box sx={{ textAlign: 'center', mt: 4 }}>
+                  <Typography variant="h6" sx={{ color: '#ff6b35', fontWeight: 'bold', mb: 2 }}>
+                    🔥 Pengumuman Selesai!
+                  </Typography>
+                  <Typography variant="body1" sx={{ color: '#b0b0b0', mb: 3 }}>
+                    Selamat kepada yang "paling santai"! 😎
+                  </Typography>
 
-                <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'white' }}>
-                  {topPerformer.nama}
-                </Typography>
-                <Typography variant="h6" sx={{ color: '#b0b0b0', mb: 3 }}>
-                  {topPerformer.jabatan}
-                </Typography>
-
-                {/* Star Rating */}
-                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
-                  {getStarRating(topPerformer.stars)}
+                  {/* Reset Button */}
+                  <Button
+                    onClick={handleReset}
+                    variant="outlined"
+                    sx={{
+                      mt: 3,
+                      borderColor: '#ff6b35',
+                      color: '#ff6b35',
+                      '&:hover': {
+                        borderColor: '#ff5722',
+                        backgroundColor: 'rgba(255, 107, 53, 0.1)'
+                      }
+                    }}
+                  >
+                    🔄 Cek Lagi
+                  </Button>
                 </Box>
-
-                {/* Stats */}
-                <Grid container spacing={2} sx={{ mb: 3 }}>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="text.secondary">
-                      Total Absen
-                    </Typography>
-                    <Typography variant="h5" sx={{ color: '#ff6b35', fontWeight: 'bold' }}>
-                      {topPerformer.attendance.totalAbsences}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="text.secondary">
-                      Skor Santuy
-                    </Typography>
-                    <Typography variant="h5" sx={{ color: '#ff9800', fontWeight: 'bold' }}>
-                      {topPerformer.santuyScore}
-                    </Typography>
-                  </Grid>
-                </Grid>
-
-                {/* Achievement Message */}
-                <Typography variant="h6" sx={{ color: '#ff6b35', fontWeight: 'bold', mb: 2 }}>
-                  🔥 Selamat! Anda adalah yang paling santai bulan ini!
-                </Typography>
-
-                <Typography variant="body1" sx={{ color: '#b0b0b0' }}>
-                  Terus jaga "santai" Anda! 😎
-                </Typography>
-              </CardContent>
-            </Card>
+              )}
+            </Box>
           ) : (
             <Typography variant="h6" sx={{ color: '#b0b0b0' }}>
               Tidak ada data kehadiran bulan ini

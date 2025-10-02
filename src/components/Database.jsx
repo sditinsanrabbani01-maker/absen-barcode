@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Checkbox, FormControl, InputLabel, Select, MenuItem, CircularProgress, Alert, LinearProgress, TablePagination, InputAdornment } from '@mui/material';
+import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Checkbox, FormControl, InputLabel, Select, MenuItem, CircularProgress, Alert, LinearProgress, TablePagination, InputAdornment, Chip } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { CloudUpload, CloudDownload, GetApp, Publish } from '@mui/icons-material';
 import { db } from '../database';
 import { DatabaseService, supabase } from '../config/supabase';
+import { syncManager } from '../services/SyncManager';
 
 const Database = ({ mode }) => {
   // State management
@@ -38,8 +39,23 @@ const Database = ({ mode }) => {
   const [filteredGuruData, setFilteredGuruData] = useState([]);
   const [filteredSiswaData, setFilteredSiswaData] = useState([]);
 
+  // Initial loading state
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [dataSource, setDataSource] = useState('local'); // 'local' or 'supabase'
+
   useEffect(() => {
-    loadData();
+    // Initial load with loading state
+    loadData(true);
+
+    // Listen for sync status changes and reload data when sync completes
+    const unsubscribe = syncManager.onSyncStatus((status) => {
+      if (status.type === 'sync_completed' || status.type === 'remote_sync_completed') {
+        console.log('🔄 Database component detected sync completion, reloading data...');
+        loadData();
+      }
+    });
+
+    return unsubscribe;
   }, []);
 
   // Search filtering effect
@@ -72,18 +88,40 @@ const Database = ({ mode }) => {
   }, [searchTerm, guruData, siswaData]);
 
   // Load data from IndexedDB
-  const loadData = async () => {
+  const loadData = async (isInitialLoad = false) => {
     try {
       const [guru, siswa] = await Promise.all([
         db.guru.where('status').equals('active').toArray(),
         db.siswa.where('status').equals('active').toArray()
       ]);
+
       setGuruData(guru);
       setSiswaData(siswa);
       setFilteredGuruData(guru);
       setFilteredSiswaData(siswa);
+
+      // Determine data source
+      const supabaseAvailable = localStorage.getItem('supabase_data_available') === 'true';
+      const lastSupabaseSync = localStorage.getItem('last_supabase_sync');
+
+      if (supabaseAvailable && lastSupabaseSync) {
+        setDataSource('supabase');
+        console.log('📊 Data loaded from Supabase (last sync:', new Date(lastSupabaseSync).toLocaleString('id-ID') + ')');
+      } else {
+        setDataSource('local');
+        console.log('📊 Data loaded from local storage');
+      }
+
+      // Hide initial loading after first load
+      if (isInitialLoad) {
+        setInitialLoading(false);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
+      setDataSource('local');
+      if (isInitialLoad) {
+        setInitialLoading(false);
+      }
     }
   };
 
@@ -481,48 +519,23 @@ const Database = ({ mode }) => {
 
   const handleSave = async () => {
     try {
-      if (form.sebagai === 'Guru') {
-        if (editing) {
-          await db.guru.update(editing.id, {
-            nama: form.nama,
-            niy: form.identifier,
-            jabatan: form.jabatan,
-            sebagai: form.sebagai,
-            email: form.email,
-            wa: form.wa
-          });
-        } else {
-          await db.guru.add({
-            nama: form.nama,
-            niy: form.identifier,
-            jabatan: form.jabatan,
-            sebagai: form.sebagai,
-            email: form.email,
-            wa: form.wa,
-            status: 'active'
-          });
-        }
+      const tableName = form.sebagai === 'Guru' ? 'guru' : 'siswa';
+      const data = {
+        nama: form.nama,
+        [form.sebagai === 'Guru' ? 'niy' : 'nisn']: form.identifier,
+        jabatan: form.jabatan,
+        sebagai: form.sebagai,
+        email: form.email,
+        wa: form.wa,
+        status: 'active'
+      };
+
+      if (editing) {
+        // Update existing record
+        await DatabaseService.update(tableName, editing.id, data);
       } else {
-        if (editing) {
-          await db.siswa.update(editing.id, {
-            nama: form.nama,
-            nisn: form.identifier,
-            jabatan: form.jabatan,
-            sebagai: form.sebagai,
-            email: form.email,
-            wa: form.wa
-          });
-        } else {
-          await db.siswa.add({
-            nama: form.nama,
-            nisn: form.identifier,
-            jabatan: form.jabatan,
-            sebagai: form.sebagai,
-            email: form.email,
-            wa: form.wa,
-            status: 'active'
-          });
-        }
+        // Create new record
+        await DatabaseService.create(tableName, data);
       }
 
       await loadData();
@@ -560,8 +573,8 @@ const Database = ({ mode }) => {
 
     try {
       const deletePromises = [];
-      selectedGuru.forEach(id => deletePromises.push(db.guru.delete(id)));
-      selectedSiswa.forEach(id => deletePromises.push(db.siswa.delete(id)));
+      selectedGuru.forEach(id => deletePromises.push(DatabaseService.delete('guru', id)));
+      selectedSiswa.forEach(id => deletePromises.push(DatabaseService.delete('siswa', id)));
 
       await Promise.all(deletePromises);
       setSelectedGuru([]);
@@ -654,26 +667,82 @@ const Database = ({ mode }) => {
 
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Database Management - Mode: {mode}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4">
+          Database Management - Mode: {mode}
+        </Typography>
+
+        {/* Data Source Indicator */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {initialLoading ? (
+            <Chip
+              label="⏳ Memuat data..."
+              color="primary"
+              variant="outlined"
+            />
+          ) : (
+            <Chip
+              label={dataSource === 'supabase' ? '☁️ Data dari Supabase' : '💾 Data Lokal'}
+              color={dataSource === 'supabase' ? 'success' : 'default'}
+              variant="outlined"
+            />
+          )}
+        </Box>
+      </Box>
+
+      {/* Initial Loading Progress */}
+      {initialLoading && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="body2" gutterBottom>
+            🔄 Menginisialisasi sistem dan memuat data dari cloud...
+          </Typography>
+          <LinearProgress />
+        </Box>
+      )}
 
       {/* Info Panel */}
-      <Box sx={{ mb: 3, p: 2, bgcolor: 'info.main', color: 'white', borderRadius: 1 }}>
+      <Box sx={{
+        mb: 3,
+        p: 2,
+        bgcolor: dataSource === 'supabase' ? 'success.main' : 'info.main',
+        color: 'white',
+        borderRadius: 1
+      }}>
         <Typography variant="h6" gutterBottom>
-          ℹ️ Sinkronisasi Data Antar Device
+          {initialLoading ? '⏳ Memuat Sistem...' : `ℹ️ Database ${dataSource === 'supabase' ? 'Supabase Cloud' : 'Lokal'} Aktif`}
         </Typography>
-        <Typography variant="body2">
-          Data disimpan secara lokal di browser. Untuk menyamakan data antar device:
-        </Typography>
-        <Typography variant="body2" component="div" sx={{ mt: 1 }}>
-          <strong>Cara Sync:</strong><br/>
-          1. Di device utama: <GetApp/> Backup → simpan file .json<br/>
-          2. Di device lain: <Publish/> Restore → pilih file backup<br/>
-          3. Data otomatis tersinkronisasi
-        </Typography>
+
+        {initialLoading ? (
+          <Typography variant="body2">
+            🔄 Menginisialisasi sistem dan memuat data dari {navigator.onLine ? 'cloud' : 'storage lokal'}...
+          </Typography>
+        ) : (
+          <Typography variant="body2" component="div">
+            {dataSource === 'supabase' ? (
+              <>
+                <strong>☁️ Mode Cloud Database:</strong><br/>
+                • 📊 Data tersinkronisasi dengan Supabase<br/>
+                • 🔄 Auto-sync background aktif<br/>
+                • 🌐 Real-time updates dari cloud<br/>
+                • 💾 Backup otomatis ke lokal
+              </>
+            ) : (
+              <>
+                <strong>💾 Mode Local Database:</strong><br/>
+                • 📱 Aplikasi siap digunakan offline<br/>
+                • ✅ Semua fitur tetap berfungsi<br/>
+                • 📋 Data akan sync ketika online<br/>
+                • 🔄 Queue system aktif untuk sync nanti
+              </>
+            )}
+          </Typography>
+        )}
+
         <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>
-          💡 Lakukan backup berkala untuk menghindari kehilangan data
+          {initialLoading ?
+            '⏳ Mohon tunggu sebentar, sistem sedang memuat...' :
+            `💡 Status: ${dataSource === 'supabase' ? 'Tersinkronisasi dengan cloud' : 'Siap digunakan offline'}`
+          }
         </Typography>
       </Box>
 
@@ -763,7 +832,14 @@ const Database = ({ mode }) => {
 
       {/* Guru Table */}
       <Typography variant="h6" gutterBottom>
-        👨‍🏫 Data Guru ({filteredGuruData.length}{searchTerm ? ` dari ${guruData.length}` : ''})
+        👨‍🏫 Data Guru ({
+          initialLoading ? '...' : filteredGuruData.length
+        }{searchTerm ? ` dari ${initialLoading ? '...' : guruData.length}` : ''})
+        {!initialLoading && dataSource === 'supabase' && (
+          <Typography component="span" variant="body2" color="success.main" sx={{ ml: 1 }}>
+            • Data dari Supabase
+          </Typography>
+        )}
       </Typography>
       <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }}>
@@ -825,7 +901,14 @@ const Database = ({ mode }) => {
 
       {/* Siswa Table */}
       <Typography variant="h6" gutterBottom>
-        👨‍🎓 Data Siswa ({filteredSiswaData.length}{searchTerm ? ` dari ${siswaData.length}` : ''})
+        👨‍🎓 Data Siswa ({
+          initialLoading ? '...' : filteredSiswaData.length
+        }{searchTerm ? ` dari ${initialLoading ? '...' : siswaData.length}` : ''})
+        {!initialLoading && dataSource === 'supabase' && (
+          <Typography component="span" variant="body2" color="success.main" sx={{ ml: 1 }}>
+            • Data dari Supabase
+          </Typography>
+        )}
       </Typography>
       <TableContainer component={Paper} sx={{ mb: 1, overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }}>

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { Box, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Toolbar, AppBar, Typography, IconButton, Select, MenuItem, FormControl } from '@mui/material';
+import { Box, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Toolbar, AppBar, Typography, IconButton, Select, MenuItem, FormControl, Button, Avatar, Menu } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -12,6 +12,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import StarIcon from '@mui/icons-material/Star';
+import LogoutIcon from '@mui/icons-material/Logout';
 import Dashboard from './components/Dashboard';
 import Database from './components/Database';
 import Absensi from './components/Absensi';
@@ -28,6 +29,13 @@ import SiSantuy from './components/SiSantuy';
 import BintangKu from './components/BintangKu';
 import SiGesitStandalone from './components/SiGesitStandalone';
 import SiSantuyStandalone from './components/SiSantuyStandalone';
+import Login from './components/Login';
+import ProtectedRoute from './components/ProtectedRoute';
+import Presensi from './components/Presensi';
+import { DatabaseService } from './config/supabase';
+import { syncManager } from './services/SyncManager';
+import { AuthService } from './services/AuthService';
+import SyncStatus from './components/SyncStatus';
 
 const drawerWidth = 240;
 
@@ -45,34 +53,144 @@ const theme = createTheme({
 
 function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [mode, setMode] = useState('Admin');
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userMenuAnchor, setUserMenuAnchor] = useState(null);
 
-  // Check if current route is scan mode, izin form, or standalone (full screen)
+  // Check authentication status on app load
+  useEffect(() => {
+    const user = AuthService.getCurrentUser();
+    if (user && AuthService.isAuthenticated()) {
+      setCurrentUser(user);
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  // Auto-sync from Supabase to local storage on app load (only if authenticated)
+  useEffect(() => {
+    if (isAuthenticated) {
+      const initializeSync = async () => {
+        try {
+          console.log('🚀 Initializing sync system...');
+
+          // First, try to sync from remote if online and Supabase configured
+          if (navigator.onLine && import.meta.env.VITE_SUPABASE_URL) {
+            console.log('🌐 Online: Starting remote sync...');
+            try {
+              const syncResults = await DatabaseService.autoSyncFromSupabase();
+              console.log('✅ Initial sync from Supabase completed:', syncResults);
+
+              // Save sync timestamp and mark Supabase as available
+              localStorage.setItem('last_supabase_sync', new Date().toISOString());
+              localStorage.setItem('supabase_data_available', 'true');
+              console.log('☁️ Supabase data loaded successfully');
+            } catch (supabaseError) {
+              console.warn('⚠️ Initial Supabase sync failed, falling back to local data:', supabaseError.message);
+              localStorage.setItem('supabase_data_available', 'false');
+
+              // Try to initialize local data if Supabase fails
+              try {
+                const { db } = await import('./database.js');
+                await db.open();
+                console.log('💾 Local database initialized as fallback');
+              } catch (localError) {
+                console.error('❌ Both Supabase and local database failed:', localError);
+              }
+            }
+          } else {
+            console.log('📴 Offline or Supabase not configured, using local data only');
+            localStorage.setItem('supabase_data_available', 'false');
+
+            // Ensure local database is ready
+            try {
+              const { db } = await import('./database.js');
+              await db.open();
+              console.log('💾 Local database ready for offline use');
+            } catch (localError) {
+              console.error('❌ Local database initialization failed:', localError);
+            }
+          }
+
+          // Start automatic sync manager regardless of initial sync result
+          syncManager.startAutoSync();
+
+          console.log('✅ Sync system initialized');
+        } catch (error) {
+          console.error('❌ Sync initialization failed:', error);
+          // Start sync manager anyway for offline functionality
+          syncManager.startAutoSync();
+        }
+      };
+
+      initializeSync();
+
+      // Cleanup on unmount
+      return () => {
+        syncManager.stopAutoSync();
+      };
+    }
+  }, [isAuthenticated]);
+
+  // Check if current route is scan mode, izin form, presensi, or standalone (full screen)
   const isScanMode = window.location.pathname.startsWith('/scan') ||
-                     window.location.pathname.startsWith('/izin') ||
-                     window.location.pathname.startsWith('/si-gesit-standalone') ||
-                     window.location.pathname.startsWith('/si-santuy-standalone');
+                      window.location.pathname.startsWith('/izin') ||
+                      window.location.pathname.startsWith('/presensi') ||
+                      window.location.pathname.startsWith('/si-gesit-standalone') ||
+                      window.location.pathname.startsWith('/si-santuy-standalone');
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
 
-  const handleModeChange = (event) => {
-    setMode(event.target.value);
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+    setIsAuthenticated(true);
   };
 
-  const menuItems = [
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
-    { text: 'Database', icon: <StorageIcon />, path: '/database' },
-    { text: 'Absensi', icon: <EventNoteIcon />, path: '/absensi' },
-    { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen' },
-    { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap' },
-    { text: 'BintangKu', icon: <StarIcon />, path: '/bintangku' },
-    { text: 'Data Guru', icon: <SchoolIcon />, path: '/data-guru' },
-    { text: 'Data Siswa', icon: <PersonIcon />, path: '/data-siswa' },
-    { text: 'Data Mutasi', icon: <EventNoteIcon />, path: '/data-mutasi' },
-    { text: 'Penggajian', icon: <AccountBalanceIcon />, path: '/penggajian' },
-  ];
+  const handleLogout = () => {
+    AuthService.logout();
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+    setUserMenuAnchor(null);
+  };
+
+  const handleUserMenuOpen = (event) => {
+    setUserMenuAnchor(event.currentTarget);
+  };
+
+  const handleUserMenuClose = () => {
+    setUserMenuAnchor(null);
+  };
+
+  // If not authenticated and not accessing standalone routes, show login page
+  if (!isAuthenticated && !isScanMode) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Login onLogin={handleLogin} />
+      </ThemeProvider>
+    );
+  }
+
+  // Define menu items based on user role
+  const getMenuItems = (userRole) => {
+    const allMenuItems = [
+      { text: 'Dashboard', icon: <DashboardIcon />, path: '/', feature: 'dashboard' },
+      { text: 'Database', icon: <StorageIcon />, path: '/database', feature: 'database' },
+      { text: 'Absensi', icon: <EventNoteIcon />, path: '/absensi', feature: 'absensi' },
+      { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen', feature: 'rekap-absen' },
+      { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap', feature: 'rekap-lengkap' },
+      { text: 'BintangKu', icon: <StarIcon />, path: '/bintangku', feature: 'bintangku' },
+      { text: 'Data Guru', icon: <SchoolIcon />, path: '/data-guru', feature: 'data-guru' },
+      { text: 'Data Siswa', icon: <PersonIcon />, path: '/data-siswa', feature: 'data-siswa' },
+      { text: 'Data Mutasi', icon: <EventNoteIcon />, path: '/data-mutasi', feature: 'data-mutasi' },
+      { text: 'Penggajian', icon: <AccountBalanceIcon />, path: '/penggajian', feature: 'penggajian' },
+    ];
+
+    return allMenuItems.filter(item => AuthService.canAccess(userRole, item.feature));
+  };
+
+  const menuItems = getMenuItems(currentUser?.role);
 
   const drawer = (
     <div>
@@ -101,10 +219,11 @@ function App() {
       <CssBaseline />
       <Router>
         {isScanMode ? (
-          // Full screen mode - no sidebar, no appbar (for scan, izin form, and standalone)
+          // Full screen mode - no sidebar, no appbar (for scan, izin form, presensi, and standalone)
           <Routes>
             <Route path="/scan" element={<Scan />} />
             <Route path="/izin" element={<IzinForm mode="Standalone" />} />
+            <Route path="/presensi" element={<Presensi />} />
             <Route path="/si-gesit-standalone" element={<SiGesitStandalone />} />
             <Route path="/si-santuy-standalone" element={<SiSantuyStandalone />} />
           </Routes>
@@ -131,19 +250,56 @@ function App() {
                 <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
                   INGAT WAKTU
                 </Typography>
-                <FormControl size="small">
-                  <Select
-                    value={mode}
-                    onChange={handleModeChange}
-                    displayEmpty
-                    inputProps={{ 'aria-label': 'Without label' }}
-                    sx={{ color: 'white', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'white' }, '& .MuiSvgIcon-root': { color: 'white' } }}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <SyncStatus />
+                  <Button
+                    onClick={handleUserMenuOpen}
+                    sx={{
+                      color: 'white',
+                      textTransform: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1
+                    }}
                   >
-                    <MenuItem value="Admin">Admin</MenuItem>
-                    <MenuItem value="Operator">Operator</MenuItem>
-                    <MenuItem value="Bendahara">Bendahara</MenuItem>
-                  </Select>
-                </FormControl>
+                    <Avatar
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        bgcolor: 'primary.dark'
+                      }}
+                    >
+                      {currentUser?.nama?.charAt(0) || 'U'}
+                    </Avatar>
+                    <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+                      <Typography variant="body2">
+                        {currentUser?.nama}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        {currentUser?.role}
+                      </Typography>
+                    </Box>
+                  </Button>
+                  <Menu
+                    anchorEl={userMenuAnchor}
+                    open={Boolean(userMenuAnchor)}
+                    onClose={handleUserMenuClose}
+                    onClick={handleUserMenuClose}
+                  >
+                    <Box sx={{ px: 2, py: 1, minWidth: 150 }}>
+                      <Typography variant="body2" fontWeight="bold">
+                        {currentUser?.nama}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {currentUser?.role}
+                      </Typography>
+                    </Box>
+                    <MenuItem onClick={handleLogout}>
+                      <LogoutIcon sx={{ mr: 1 }} />
+                      Logout
+                    </MenuItem>
+                  </Menu>
+                </Box>
               </Toolbar>
             </AppBar>
             <Box
@@ -182,19 +338,68 @@ function App() {
             >
               <Toolbar />
               <Routes>
-                <Route path="/" element={<Dashboard mode={mode} />} />
-                <Route path="/database" element={<Database mode={mode} />} />
-                <Route path="/absensi" element={<Absensi mode={mode} />} />
-                <Route path="/rekap-absen" element={<RekapAbsen mode={mode} />} />
-                <Route path="/rekap-lengkap" element={<RekapLengkap mode={mode} />} />
-                <Route path="/bintangku" element={<BintangKu mode={mode} />} />
-                <Route path="/si-gesit" element={<SiGesit mode={mode} />} />
-                <Route path="/si-santuy" element={<SiSantuy mode={mode} />} />
-                <Route path="/data-guru" element={<DataGuru mode={mode} />} />
-                <Route path="/data-siswa" element={<DataSiswa mode={mode} />} />
-                <Route path="/data-mutasi" element={<DataMutasi mode={mode} />} />
-                <Route path="/penggajian" element={<Penggajian mode={mode} />} />
+                <Route path="/" element={
+                  <ProtectedRoute requiredFeature="dashboard">
+                    <Dashboard mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/database" element={
+                  <ProtectedRoute requiredFeature="database">
+                    <Database mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/absensi" element={
+                  <ProtectedRoute requiredFeature="absensi">
+                    <Absensi mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/rekap-absen" element={
+                  <ProtectedRoute requiredFeature="rekap-absen">
+                    <RekapAbsen mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/rekap-lengkap" element={
+                  <ProtectedRoute requiredFeature="rekap-lengkap">
+                    <RekapLengkap mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/bintangku" element={
+                  <ProtectedRoute requiredFeature="bintangku">
+                    <BintangKu mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/si-gesit" element={
+                  <ProtectedRoute requiredFeature="bintangku">
+                    <SiGesit mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/si-santuy" element={
+                  <ProtectedRoute requiredFeature="bintangku">
+                    <SiSantuy mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/data-guru" element={
+                  <ProtectedRoute requiredFeature="data-guru">
+                    <DataGuru mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/data-siswa" element={
+                  <ProtectedRoute requiredFeature="data-siswa">
+                    <DataSiswa mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/data-mutasi" element={
+                  <ProtectedRoute requiredFeature="data-mutasi">
+                    <DataMutasi mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
+                <Route path="/penggajian" element={
+                  <ProtectedRoute requiredFeature="penggajian">
+                    <Penggajian mode={currentUser?.role} />
+                  </ProtectedRoute>
+                } />
                 <Route path="/scan" element={<Scan />} />
+                <Route path="/login" element={<Login onLogin={handleLogin} />} />
               </Routes>
             </Box>
           </Box>

@@ -384,111 +384,195 @@ export class DatabaseService {
   static async create(tableName, data) {
     console.log(`📝 Creating record in ${tableName}:`, data)
 
-    const { data: result, error } = await supabase
-      .from(tableName)
-      .insert(data)
-      .select()
-      .single()
+    const { db } = await import('../database.js');
 
-    if (error) {
-      console.error(`❌ Error creating record in ${tableName}:`, error)
+    // Prepare data with timestamps
+    const dataWithTimestamp = {
+      ...data,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    try {
+      // First, try to create in Supabase
+      const { data: supabaseResult, error: supabaseError } = await supabase
+        .from(tableName)
+        .insert(dataWithTimestamp)
+        .select()
+        .single()
+
+      if (supabaseError) {
+        console.error(`❌ Error creating record in Supabase ${tableName}:`, supabaseError)
+        // Continue to local storage
+      } else {
+        console.log(`✅ Record created in Supabase ${tableName}:`, supabaseResult)
+      }
+
+      // Always create in local storage
+      let localResult;
+      if (tableName === TABLES.GURU) {
+        localResult = await db.guru.add(dataWithTimestamp);
+      } else if (tableName === TABLES.SISWA) {
+        localResult = await db.siswa.add(dataWithTimestamp);
+      } else if (tableName === TABLES.ATTENDANCE) {
+        localResult = await db.attendance.add(data);
+      } else if (tableName === TABLES.PERIZINAN) {
+        localResult = await db.perizinan.add(data);
+      } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
+        localResult = await db.attendance_settings.add(data);
+      }
+
+      console.log(`✅ Record created in local ${tableName}:`, localResult)
+
+      // Return Supabase result if successful, otherwise local result
+      return supabaseResult || { id: localResult, ...dataWithTimestamp };
+
+    } catch (error) {
+      console.error(`❌ Error in create operation for ${tableName}:`, error)
       throw error
     }
-
-    console.log(`✅ Record created in ${tableName}:`, result)
-    return result
   }
 
   static async update(tableName, id, data) {
     console.log(`📝 Updating record in ${tableName} (ID: ${id}):`, data)
 
+    const { db } = await import('../database.js');
+
+    // Prepare data with updated timestamp
+    const dataWithTimestamp = {
+      ...data,
+      updated_at: new Date().toISOString()
+    };
+
     try {
-      const { data: result, error } = await supabase
+      // First, try to update in Supabase
+      const { data: supabaseResult, error: supabaseError } = await supabase
         .from(tableName)
-        .update(data)
+        .update(dataWithTimestamp)
         .eq('id', id)
         .select()
         .single()
 
-      if (error) {
-        console.error(`❌ Error updating record in ${tableName}:`, error)
-        console.log('🔄 Falling back to local storage...')
-        // Fallback to local storage if Supabase fails
-        const { db } = await import('../database.js');
-        if (tableName === TABLES.GURU) {
-          await db.guru.update(id, data);
-          return { id, ...data };
-        } else if (tableName === TABLES.SISWA) {
-          await db.siswa.update(id, data);
-          return { id, ...data };
-        }
-        throw error;
+      if (supabaseError) {
+        console.error(`❌ Error updating record in Supabase ${tableName}:`, supabaseError)
+        // Continue to local storage
+      } else {
+        console.log(`✅ Record updated in Supabase ${tableName}:`, supabaseResult)
       }
 
-      console.log(`✅ Record updated in ${tableName}:`, result)
-      return result
-    } catch (err) {
-      console.error(`❌ Supabase failed, using local storage:`, err)
-      // Fallback to local storage
-      const { db } = await import('../database.js');
+      // Always update in local storage
+      let localResult;
       if (tableName === TABLES.GURU) {
-        await db.guru.update(id, data);
-        return { id, ...data };
+        localResult = await db.guru.update(id, dataWithTimestamp);
       } else if (tableName === TABLES.SISWA) {
-        await db.siswa.update(id, data);
-        return { id, ...data };
+        localResult = await db.siswa.update(id, dataWithTimestamp);
+      } else if (tableName === TABLES.ATTENDANCE) {
+        localResult = await db.attendance.update(id, data);
+      } else if (tableName === TABLES.PERIZINAN) {
+        localResult = await db.perizinan.update(id, data);
+      } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
+        localResult = await db.attendance_settings.update(id, data);
       }
-      throw err;
+
+      console.log(`✅ Record updated in local ${tableName}:`, localResult)
+
+      // Return Supabase result if successful, otherwise local result
+      return supabaseResult || { id, ...dataWithTimestamp };
+
+    } catch (error) {
+      console.error(`❌ Error in update operation for ${tableName}:`, error)
+      throw error
     }
   }
 
   static async delete(tableName, id) {
-    const { error } = await supabase
-      .from(tableName)
-      .delete()
-      .eq('id', id)
+    console.log(`🗑️ Deleting record from ${tableName} (ID: ${id})`)
 
-    if (error) throw error
+    const { db } = await import('../database.js');
+
+    try {
+      // First, try to delete from Supabase
+      const { error: supabaseError } = await supabase
+        .from(tableName)
+        .delete()
+        .eq('id', id)
+
+      if (supabaseError) {
+        console.error(`❌ Error deleting record from Supabase ${tableName}:`, supabaseError)
+        // Continue to local storage
+      } else {
+        console.log(`✅ Record deleted from Supabase ${tableName}`)
+      }
+
+      // Always delete from local storage
+      if (tableName === TABLES.GURU) {
+        await db.guru.delete(id);
+      } else if (tableName === TABLES.SISWA) {
+        await db.siswa.delete(id);
+      } else if (tableName === TABLES.ATTENDANCE) {
+        await db.attendance.delete(id);
+      } else if (tableName === TABLES.PERIZINAN) {
+        await db.perizinan.delete(id);
+      } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
+        await db.attendance_settings.delete(id);
+      }
+
+      console.log(`✅ Record deleted from local ${tableName}`)
+
+    } catch (error) {
+      console.error(`❌ Error in delete operation for ${tableName}:`, error)
+      throw error
+    }
   }
 
   static async bulkCreate(tableName, dataArray) {
     console.log(`📤 Inserting ${dataArray.length} records to ${tableName}...`)
 
+    const { db } = await import('../database.js');
+
+    // Prepare data with timestamps
+    const dataWithTimestamps = dataArray.map(data => ({
+      ...data,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }));
+
     try {
-      const { data, error } = await supabase
+      // First, try to bulk insert to Supabase
+      const { data: supabaseData, error: supabaseError } = await supabase
         .from(tableName)
-        .insert(dataArray)
+        .insert(dataWithTimestamps)
         .select()
 
-      if (error) {
-        console.error(`❌ Error inserting to ${tableName}:`, error)
-        console.log('🔄 Falling back to local storage...')
-        // Fallback to local storage if Supabase fails
-        const { db } = await import('../database.js');
-        if (tableName === TABLES.GURU) {
-          await db.guru.bulkAdd(dataArray);
-          return dataArray;
-        } else if (tableName === TABLES.SISWA) {
-          await db.siswa.bulkAdd(dataArray);
-          return dataArray;
-        }
-        throw error;
+      if (supabaseError) {
+        console.error(`❌ Error bulk inserting to Supabase ${tableName}:`, supabaseError)
+        // Continue to local storage
+      } else {
+        console.log(`✅ Successfully inserted ${supabaseData?.length || 0} records to Supabase ${tableName}`)
       }
 
-      console.log(`✅ Successfully inserted ${data?.length || 0} records to ${tableName}`)
-      return data
-    } catch (err) {
-      console.error(`❌ Supabase failed, using local storage:`, err)
-      // Fallback to local storage
-      const { db } = await import('../database.js');
+      // Always bulk insert to local storage
+      let localResults;
       if (tableName === TABLES.GURU) {
-        await db.guru.bulkAdd(dataArray);
-        return dataArray;
+        localResults = await db.guru.bulkAdd(dataWithTimestamps);
       } else if (tableName === TABLES.SISWA) {
-        await db.siswa.bulkAdd(dataArray);
-        return dataArray;
+        localResults = await db.siswa.bulkAdd(dataWithTimestamps);
+      } else if (tableName === TABLES.ATTENDANCE) {
+        localResults = await db.attendance.bulkAdd(dataArray);
+      } else if (tableName === TABLES.PERIZINAN) {
+        localResults = await db.perizinan.bulkAdd(dataArray);
+      } else if (tableName === TABLES.ATTENDANCE_SETTINGS) {
+        localResults = await db.attendance_settings.bulkAdd(dataArray);
       }
-      throw err;
+
+      console.log(`✅ Successfully inserted ${dataArray.length} records to local ${tableName}`)
+
+      // Return Supabase results if successful, otherwise local results
+      return supabaseData || dataWithTimestamps;
+
+    } catch (error) {
+      console.error(`❌ Error in bulk create operation for ${tableName}:`, error)
+      throw error
     }
   }
 
@@ -602,6 +686,372 @@ export class DatabaseService {
     } catch (error) {
       console.error('❌ Sync failed:', error);
       throw error;
+    }
+  }
+
+  // Auto-sync from Supabase to local storage on app load
+  static async autoSyncFromSupabase() {
+    console.log('🔄 Starting auto-sync from Supabase to local storage...');
+
+    try {
+      const { db } = await import('../database.js');
+
+      const results = {
+        guru: await this.syncGuruFromSupabase(db),
+        siswa: await this.syncSiswaFromSupabase(db),
+        attendance: await this.syncAttendanceFromSupabase(db),
+        perizinan: await this.syncPerizinanFromSupabase(db),
+        settings: await this.syncSettingsFromSupabase(db)
+      };
+
+      console.log('✅ Auto-sync from Supabase completed:', results);
+      return results;
+
+    } catch (error) {
+      console.error('❌ Auto-sync from Supabase failed:', error);
+      // Don't throw error - app should still work with local data
+      return { error: error.message };
+    }
+  }
+
+  // Sync Guru from Supabase to local
+  static async syncGuruFromSupabase(db) {
+    try {
+      console.log('🔄 Syncing guru from Supabase...');
+      const { data: supabaseGuru, error } = await supabase
+        .from(TABLES.GURU)
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Error fetching guru from Supabase:', error);
+        return { synced: 0, error: error.message };
+      }
+
+      if (!supabaseGuru || supabaseGuru.length === 0) {
+        console.log('ℹ️ No guru data in Supabase');
+        return { synced: 0 };
+      }
+
+      let synced = 0;
+      for (const guru of supabaseGuru) {
+        try {
+          // Check if exists locally
+          const existing = await db.guru.where('niy').equals(guru.niy).first();
+
+          if (!existing) {
+            // Add new record
+            await db.guru.add({
+              nama: guru.nama,
+              niy: guru.niy,
+              jabatan: guru.jabatan,
+              sebagai: guru.sebagai || 'Guru',
+              email: guru.email,
+              wa: guru.wa,
+              status: guru.status || 'active',
+              pendidikan: guru.pendidikan,
+              mk_start_year: guru.mk_start_year,
+              mk_start_month: guru.mk_start_month,
+              gaji_pokok: guru.gaji_pokok,
+              tunjangan_kinerja: guru.tunjangan_kinerja,
+              tunjangan_umum: guru.tunjangan_umum,
+              tunjangan_istri: guru.tunjangan_istri,
+              tunjangan_anak: guru.tunjangan_anak,
+              tunjangan_kepala_sekolah: guru.tunjangan_kepala_sekolah,
+              tunjangan_wali_kelas: guru.tunjangan_wali_kelas,
+              honor_bendahara: guru.honor_bendahara,
+              keterangan: guru.keterangan,
+              custom_base_salary: guru.custom_base_salary
+            });
+            synced++;
+          } else if (guru.updated_at && (!existing.updated_at || new Date(guru.updated_at) > new Date(existing.updated_at))) {
+            // Update if Supabase data is newer
+            await db.guru.update(existing.id, {
+              nama: guru.nama,
+              jabatan: guru.jabatan,
+              sebagai: guru.sebagai || 'Guru',
+              email: guru.email,
+              wa: guru.wa,
+              status: guru.status || 'active',
+              pendidikan: guru.pendidikan,
+              mk_start_year: guru.mk_start_year,
+              mk_start_month: guru.mk_start_month,
+              gaji_pokok: guru.gaji_pokok,
+              tunjangan_kinerja: guru.tunjangan_kinerja,
+              tunjangan_umum: guru.tunjangan_umum,
+              tunjangan_istri: guru.tunjangan_istri,
+              tunjangan_anak: guru.tunjangan_anak,
+              tunjangan_kepala_sekolah: guru.tunjangan_kepala_sekolah,
+              tunjangan_wali_kelas: guru.tunjangan_wali_kelas,
+              honor_bendahara: guru.honor_bendahara,
+              keterangan: guru.keterangan,
+              custom_base_salary: guru.custom_base_salary,
+              updated_at: guru.updated_at
+            });
+            synced++;
+          }
+        } catch (error) {
+          console.error(`❌ Error syncing guru ${guru.nama}:`, error);
+        }
+      }
+
+      console.log(`✅ Synced ${synced} guru records from Supabase`);
+      return { synced };
+    } catch (error) {
+      console.error('❌ Error in syncGuruFromSupabase:', error);
+      return { synced: 0, error: error.message };
+    }
+  }
+
+  // Sync Siswa from Supabase to local
+  static async syncSiswaFromSupabase(db) {
+    try {
+      console.log('🔄 Syncing siswa from Supabase...');
+      const { data: supabaseSiswa, error } = await supabase
+        .from(TABLES.SISWA)
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Error fetching siswa from Supabase:', error);
+        return { synced: 0, error: error.message };
+      }
+
+      if (!supabaseSiswa || supabaseSiswa.length === 0) {
+        console.log('ℹ️ No siswa data in Supabase');
+        return { synced: 0 };
+      }
+
+      let synced = 0;
+      for (const siswa of supabaseSiswa) {
+        try {
+          // Check if exists locally
+          const existing = await db.siswa.where('nisn').equals(siswa.nisn).first();
+
+          if (!existing) {
+            // Add new record
+            await db.siswa.add({
+              nama: siswa.nama,
+              nisn: siswa.nisn,
+              jabatan: siswa.jabatan,
+              sebagai: siswa.sebagai || 'Siswa',
+              email: siswa.email,
+              wa: siswa.wa,
+              status: siswa.status || 'active'
+            });
+            synced++;
+          } else if (siswa.updated_at && (!existing.updated_at || new Date(siswa.updated_at) > new Date(existing.updated_at))) {
+            // Update if Supabase data is newer
+            await db.siswa.update(existing.id, {
+              nama: siswa.nama,
+              jabatan: siswa.jabatan,
+              sebagai: siswa.sebagai || 'Siswa',
+              email: siswa.email,
+              wa: siswa.wa,
+              status: siswa.status || 'active',
+              updated_at: siswa.updated_at
+            });
+            synced++;
+          }
+        } catch (error) {
+          console.error(`❌ Error syncing siswa ${siswa.nama}:`, error);
+        }
+      }
+
+      console.log(`✅ Synced ${synced} siswa records from Supabase`);
+      return { synced };
+    } catch (error) {
+      console.error('❌ Error in syncSiswaFromSupabase:', error);
+      return { synced: 0, error: error.message };
+    }
+  }
+
+  // Sync Attendance from Supabase to local
+  static async syncAttendanceFromSupabase(db) {
+    try {
+      console.log('🔄 Syncing attendance from Supabase...');
+      const { data: supabaseAttendance, error } = await supabase
+        .from(TABLES.ATTENDANCE)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1000); // Limit to prevent memory issues
+
+      if (error) {
+        console.error('❌ Error fetching attendance from Supabase:', error);
+        return { synced: 0, error: error.message };
+      }
+
+      if (!supabaseAttendance || supabaseAttendance.length === 0) {
+        console.log('ℹ️ No attendance data in Supabase');
+        return { synced: 0 };
+      }
+
+      let synced = 0;
+      for (const att of supabaseAttendance) {
+        try {
+          // Check if exists locally (by identifier, tanggal, jam combination)
+          const existing = await db.attendance
+            .where('[identifier+tanggal+jam]')
+            .equals([att.identifier, att.tanggal, att.jam])
+            .first();
+
+          if (!existing) {
+            // Add new record
+            await db.attendance.add({
+              tanggal: att.tanggal,
+              identifier: att.identifier,
+              nama: att.nama,
+              jabatan: att.jabatan,
+              jam: att.jam,
+              status: att.status,
+              keterangan: att.keterangan,
+              sebagai: att.sebagai,
+              wa: att.wa,
+              email: att.email,
+              att: att.att
+            });
+            synced++;
+          }
+        } catch (error) {
+          console.error(`❌ Error syncing attendance record:`, error);
+        }
+      }
+
+      console.log(`✅ Synced ${synced} attendance records from Supabase`);
+      return { synced };
+    } catch (error) {
+      console.error('❌ Error in syncAttendanceFromSupabase:', error);
+      return { synced: 0, error: error.message };
+    }
+  }
+
+  // Sync Perizinan from Supabase to local
+  static async syncPerizinanFromSupabase(db) {
+    try {
+      console.log('🔄 Syncing perizinan from Supabase...');
+      const { data: supabasePerizinan, error } = await supabase
+        .from(TABLES.PERIZINAN)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error) {
+        console.error('❌ Error fetching perizinan from Supabase:', error);
+        return { synced: 0, error: error.message };
+      }
+
+      if (!supabasePerizinan || supabasePerizinan.length === 0) {
+        console.log('ℹ️ No perizinan data in Supabase');
+        return { synced: 0 };
+      }
+
+      let synced = 0;
+      for (const izin of supabasePerizinan) {
+        try {
+          // Check if exists locally (by identifier, tanggal combination)
+          const existing = await db.perizinan
+            .where('[identifier+tanggal]')
+            .equals([izin.identifier, izin.tanggal])
+            .first();
+
+          if (!existing) {
+            // Add new record
+            await db.perizinan.add({
+              tanggal: izin.tanggal,
+              tanggal_mulai: izin.tanggal_mulai,
+              tanggal_selesai: izin.tanggal_selesai,
+              identifier: izin.identifier,
+              nama: izin.nama,
+              status: izin.status || 'Disetujui',
+              jenis_izin: izin.jenis_izin,
+              keterangan: izin.keterangan,
+              sebagai: izin.sebagai
+            });
+            synced++;
+          }
+        } catch (error) {
+          console.error(`❌ Error syncing perizinan record:`, error);
+        }
+      }
+
+      console.log(`✅ Synced ${synced} perizinan records from Supabase`);
+      return { synced };
+    } catch (error) {
+      console.error('❌ Error in syncPerizinanFromSupabase:', error);
+      return { synced: 0, error: error.message };
+    }
+  }
+
+  // Sync Settings from Supabase to local
+  static async syncSettingsFromSupabase(db) {
+    try {
+      console.log('🔄 Syncing settings from Supabase...');
+
+      // Sync attendance settings
+      const { data: attendanceSettings, error: attError } = await supabase
+        .from(TABLES.ATTENDANCE_SETTINGS)
+        .select('*');
+
+      if (!attError && attendanceSettings) {
+        for (const setting of attendanceSettings) {
+          try {
+            const existing = await db.attendance_settings
+              .where('id')
+              .equals(setting.id)
+              .first();
+
+            if (!existing) {
+              await db.attendance_settings.add(setting);
+            }
+          } catch (error) {
+            console.error('❌ Error syncing attendance setting:', error);
+          }
+        }
+      }
+
+      // Sync school settings
+      const { data: schoolSettings, error: schoolError } = await supabase
+        .from(TABLES.SCHOOL_SETTINGS)
+        .select('*')
+        .single();
+
+      if (!schoolError && schoolSettings) {
+        try {
+          const existing = await db.school_settings.toCollection().first();
+          if (!existing) {
+            await db.school_settings.add(schoolSettings);
+          } else {
+            await db.school_settings.update(existing.id, schoolSettings);
+          }
+        } catch (error) {
+          console.error('❌ Error syncing school settings:', error);
+        }
+      }
+
+      // Sync reminder settings
+      const { data: reminderSettings, error: reminderError } = await supabase
+        .from(TABLES.REMINDER_SETTINGS)
+        .select('*')
+        .single();
+
+      if (!reminderError && reminderSettings) {
+        try {
+          const existing = await db.reminder_settings.toCollection().first();
+          if (!existing) {
+            await db.reminder_settings.add(reminderSettings);
+          } else {
+            await db.reminder_settings.update(existing.id, reminderSettings);
+          }
+        } catch (error) {
+          console.error('❌ Error syncing reminder settings:', error);
+        }
+      }
+
+      console.log('✅ Synced settings from Supabase');
+      return { synced: 1 };
+    } catch (error) {
+      console.error('❌ Error in syncSettingsFromSupabase:', error);
+      return { synced: 0, error: error.message };
     }
   }
 
