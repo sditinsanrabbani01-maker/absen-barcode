@@ -414,7 +414,7 @@ export class DatabaseService {
       console.log(`✅ Record created in local ${tableName}:`, localResult)
 
       // Real-time sync to Supabase (don't wait for it to block UI)
-      syncManager.syncImmediately(tableName, 'create', dataWithTimestamp)
+      realtimeManager.syncImmediately(tableName, 'create', dataWithTimestamp)
         .then(result => {
           if (result.success) {
             console.log(`✅ Real-time sync successful for ${tableName} create`);
@@ -467,7 +467,7 @@ export class DatabaseService {
       console.log(`✅ Record updated in local ${tableName}:`, localResult)
 
       // Real-time sync to Supabase (don't wait for it to block UI)
-      syncManager.syncImmediately(tableName, 'update', dataWithTimestamp, id)
+      realtimeManager.syncImmediately(tableName, 'update', dataWithTimestamp, id)
         .then(result => {
           if (result.success) {
             console.log(`✅ Real-time sync successful for ${tableName} update`);
@@ -513,7 +513,7 @@ export class DatabaseService {
       console.log(`✅ Record deleted from local ${tableName}`)
 
       // Real-time sync to Supabase (don't wait for it to block UI)
-      syncManager.syncImmediately(tableName, 'delete', { id }, id)
+      realtimeManager.syncImmediately(tableName, 'delete', { id }, id)
         .then(result => {
           if (result.success) {
             console.log(`✅ Real-time sync successful for ${tableName} delete`);
@@ -535,7 +535,7 @@ export class DatabaseService {
     console.log(`📤 Inserting ${dataArray.length} records to ${tableName}...`)
 
     const { db } = await import('../database.js');
-    const { syncManager } = await import('../services/SyncManager.js');
+    const { realtimeManager } = await import('../services/SyncManager.js');
 
     // Prepare data with timestamps
     const dataWithTimestamps = dataArray.map(data => ({
@@ -564,7 +564,7 @@ export class DatabaseService {
       console.log(`✅ Successfully inserted ${dataArray.length} records to local ${tableName}`)
 
       // Real-time sync to Supabase (don't wait for it to block UI)
-      syncManager.syncImmediately(tableName, 'create', dataWithTimestamps)
+      realtimeManager.syncImmediately(tableName, 'create', dataWithTimestamps)
         .then(result => {
           if (result.success) {
             console.log(`✅ Real-time bulk sync successful for ${tableName}`);
