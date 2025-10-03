@@ -5,9 +5,14 @@ import * as XLSX from 'xlsx';
 import { CloudUpload, CloudDownload, GetApp, Publish } from '@mui/icons-material';
 import { db, clearAllData, resetApplication } from '../database';
 import { DatabaseService, supabase } from '../config/supabase';
-import { realtimeManager } from '../services/SyncManager';
+import { useRealtime } from '../context/RealtimeContext';
 
 const Database = ({ mode }) => {
+  // ============================================================================
+  // NEW: Use RealtimeContext for real-time subscriptions
+  // ============================================================================
+  const { subscribeToTable, getConnectionStatus } = useRealtime();
+
   // State management
   const [guruData, setGuruData] = useState([]);
   const [siswaData, setSiswaData] = useState([]);
@@ -45,52 +50,35 @@ const Database = ({ mode }) => {
 
   useEffect(() => {
     // ============================================================================
-    // NEW: Real-time subscriptions instead of polling-based sync
+    // NEW: Real-time subscriptions using RealtimeContext
     // ============================================================================
 
     // Initial load with loading state
     loadData(true);
 
-    // Setup real-time subscriptions for all relevant tables
-    const tablesToSubscribe = ['guru', 'siswa']; // Only subscribe to main tables
+    // Setup real-time subscriptions using the context
     const subscriptions = [];
 
-    tablesToSubscribe.forEach(tableName => {
-      const subscription = realtimeManager.subscribeToTable(tableName, (change) => {
-        console.log(`🔄 Real-time change in Database component:`, change);
-
-        // Reload data when any change occurs
-        loadData();
-
-        // Show notification to user about real-time update
-        if (change.eventType === 'INSERT') {
-          console.log(`✅ New ${change.tableName} record added`);
-        } else if (change.eventType === 'UPDATE') {
-          console.log(`📝 ${change.tableName} record updated`);
-        } else if (change.eventType === 'DELETE') {
-          console.log(`🗑️ ${change.tableName} record deleted`);
-        }
-      });
-
-      subscriptions.push(subscription);
+    // Subscribe to guru table changes
+    const guruSubscription = subscribeToTable('guru', (change) => {
+      console.log(`🔄 Real-time guru change:`, change);
+      loadData(); // Reload data when guru table changes
     });
+    subscriptions.push(guruSubscription);
 
-    // Listen for connection status changes
-    const connectionUnsubscribe = realtimeManager.onConnectionStatus((status) => {
-      console.log('🌐 Database component connection status:', status);
-      if (status.online) {
-        // Reload data when coming back online
-        loadData();
-      }
+    // Subscribe to siswa table changes
+    const siswaSubscription = subscribeToTable('siswa', (change) => {
+      console.log(`🔄 Real-time siswa change:`, change);
+      loadData(); // Reload data when siswa table changes
     });
+    subscriptions.push(siswaSubscription);
 
     // Cleanup function
     return () => {
       console.log('🔌 Cleaning up Database component subscriptions');
       subscriptions.forEach(sub => sub.unsubscribe());
-      connectionUnsubscribe();
     };
-  }, []);
+  }, [subscribeToTable]);
 
   // Search filtering effect
   useEffect(() => {
@@ -134,13 +122,11 @@ const Database = ({ mode }) => {
       setFilteredGuruData(guru);
       setFilteredSiswaData(siswa);
 
-      // Determine data source
-      const supabaseAvailable = localStorage.getItem('supabase_data_available') === 'true';
-      const lastSupabaseSync = localStorage.getItem('last_supabase_sync');
-
-      if (supabaseAvailable && lastSupabaseSync) {
+      // Determine data source using connection status
+      const connectionStatus = getConnectionStatus();
+      if (connectionStatus.online) {
         setDataSource('supabase');
-        console.log('📊 Data loaded from Supabase (last sync:', new Date(lastSupabaseSync).toLocaleString('id-ID') + ')');
+        console.log('📊 Data loaded from Supabase with real-time sync');
       } else {
         setDataSource('local');
         console.log('📊 Data loaded from local storage');
@@ -720,7 +706,7 @@ const Database = ({ mode }) => {
           Database Management - Mode: {mode}
         </Typography>
 
-        {/* Data Source Indicator */}
+        {/* Real-time Status Indicator */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           {initialLoading ? (
             <Chip
