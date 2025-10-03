@@ -15,12 +15,41 @@ class GlobalRealtimeManager {
   }
 
   /**
-   * Subscribe to real-time changes for a specific table
-   * @param {string} tableName - Name of the table to subscribe to
-   * @param {Function} callback - Callback function for handling changes
-   * @returns {Object} Subscription object with unsubscribe method
-   */
-  subscribeToTable(tableName, callback) {
+    * Delete a record from a table
+    * @param {string} tableName - Name of the table to delete from
+    * @param {string|number} id - ID of the record to delete
+    * @returns {Promise} Promise that resolves when deletion is complete
+    */
+   async delete(tableName, id) {
+     console.log(`🗑️ Deleting record with ID ${id} from table: ${tableName}`);
+
+     try {
+       const { data, error } = await supabase
+         .from(tableName)
+         .delete()
+         .eq('id', id)
+         .select();
+
+       if (error) {
+         console.error(`❌ Error deleting from ${tableName}:`, error);
+         throw error;
+       }
+
+       console.log(`✅ Successfully deleted record ${id} from ${tableName}`);
+       return data;
+     } catch (error) {
+       console.error(`❌ Failed to delete record ${id} from ${tableName}:`, error);
+       throw error;
+     }
+   }
+
+   /**
+    * Subscribe to real-time changes for a specific table
+    * @param {string} tableName - Name of the table to subscribe to
+    * @param {Function} callback - Callback function for handling changes
+    * @returns {Object} Subscription object with unsubscribe method
+    */
+   subscribeToTable(tableName, callback) {
     console.log(`📡 Setting up real-time subscription for table: ${tableName}`);
 
     // Store callback for this table
@@ -126,12 +155,17 @@ export const RealtimeProvider = ({ children }) => {
     return globalRealtimeManager.subscribeToTable(tableName, callback);
   };
 
+  const deleteRecord = async (tableName, id) => {
+    return globalRealtimeManager.delete(tableName, id);
+  };
+
   const getConnectionStatus = () => {
     return globalRealtimeManager.getConnectionStatus();
   };
 
   const value = {
     subscribeToTable,
+    deleteRecord,
     getConnectionStatus,
     connectionStatus
   };

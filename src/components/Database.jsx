@@ -8,10 +8,8 @@ import { DatabaseService, supabase } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
 
 const Database = ({ mode }) => {
-  // ============================================================================
-  // NEW: Use RealtimeContext for real-time subscriptions
-  // ============================================================================
-  const { subscribeToTable, getConnectionStatus } = useRealtime();
+  // Realtime context
+  const { deleteRecord } = useRealtime();
 
   // State management
   const [guruData, setGuruData] = useState([]);
@@ -50,35 +48,51 @@ const Database = ({ mode }) => {
 
   useEffect(() => {
     // ============================================================================
-    // NEW: Real-time subscriptions using RealtimeContext
+    // NEW: Native Supabase realtime subscriptions (following user's suggestion)
     // ============================================================================
 
     // Initial load with loading state
     loadData(true);
 
-    // Setup real-time subscriptions using the context
+    // Setup native Supabase realtime subscriptions
     const subscriptions = [];
 
-    // Subscribe to guru table changes
-    const guruSubscription = subscribeToTable('guru', (change) => {
-      console.log(`🔄 Real-time guru change:`, change);
-      loadData(); // Reload data when guru table changes
-    });
-    subscriptions.push(guruSubscription);
+    // Subscribe to guru table changes using native Supabase
+    const guruChannel = supabase
+      .channel('guru_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'guru' },
+        (payload) => {
+          console.log('🔄 Real-time guru change:', payload);
+          loadData(); // Reload data when guru table changes
+        }
+      )
+      .subscribe();
 
-    // Subscribe to siswa table changes
-    const siswaSubscription = subscribeToTable('siswa', (change) => {
-      console.log(`🔄 Real-time siswa change:`, change);
-      loadData(); // Reload data when siswa table changes
-    });
-    subscriptions.push(siswaSubscription);
+    subscriptions.push(guruChannel);
+
+    // Subscribe to siswa table changes using native Supabase
+    const siswaChannel = supabase
+      .channel('siswa_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'siswa' },
+        (payload) => {
+          console.log('🔄 Real-time siswa change:', payload);
+          loadData(); // Reload data when siswa table changes
+        }
+      )
+      .subscribe();
+
+    subscriptions.push(siswaChannel);
 
     // Cleanup function
     return () => {
       console.log('🔌 Cleaning up Database component subscriptions');
-      subscriptions.forEach(sub => sub.unsubscribe());
+      subscriptions.forEach(channel => {
+        supabase.removeChannel(channel);
+      });
     };
-  }, [subscribeToTable]);
+  }, []);
 
   // Search filtering effect
   useEffect(() => {
@@ -122,9 +136,8 @@ const Database = ({ mode }) => {
       setFilteredGuruData(guru);
       setFilteredSiswaData(siswa);
 
-      // Determine data source using connection status
-      const connectionStatus = getConnectionStatus();
-      if (connectionStatus.online) {
+      // Determine data source using Supabase connection
+      if (navigator.onLine && import.meta.env.VITE_SUPABASE_URL) {
         setDataSource('supabase');
         console.log('📊 Data loaded from Supabase with real-time sync');
       } else {
@@ -587,14 +600,14 @@ const Database = ({ mode }) => {
     );
   };
 
-  // Delete selected records
+  // Delete selected records using realtime manager
   const handleDeleteSelected = async () => {
     if (!confirm('❌ Hapus data yang dipilih secara permanen?')) return;
 
     try {
       const deletePromises = [];
-      selectedGuru.forEach(id => deletePromises.push(DatabaseService.delete('guru', id)));
-      selectedSiswa.forEach(id => deletePromises.push(DatabaseService.delete('siswa', id)));
+      selectedGuru.forEach(id => deletePromises.push(deleteRecord('guru', id)));
+      selectedSiswa.forEach(id => deletePromises.push(deleteRecord('siswa', id)));
 
       await Promise.all(deletePromises);
       setSelectedGuru([]);
