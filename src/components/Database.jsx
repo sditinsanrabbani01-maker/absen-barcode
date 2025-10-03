@@ -605,13 +605,31 @@ const Database = ({ mode }) => {
     if (!confirm('❌ Hapus data yang dipilih secara permanen?')) return;
 
     try {
-      const deletePromises = [];
+      // Delete from local database first to prevent sync issues
+      const localDeletePromises = [];
+
+      // Delete guru records from local database
+      for (const id of selectedGuru) {
+        localDeletePromises.push(db.guru.delete(id));
+      }
+
+      // Delete siswa records from local database
+      for (const id of selectedSiswa) {
+        localDeletePromises.push(db.siswa.delete(id));
+      }
+
+      // Wait for local deletions to complete
+      await Promise.all(localDeletePromises);
+      console.log('✅ Local database records deleted');
+
+      // Then delete from Supabase
+      const supabaseDeletePromises = [];
 
       // Delete guru records with their niy identifier
       for (const id of selectedGuru) {
         const guru = guruData.find(g => g.id === id);
         if (guru) {
-          deletePromises.push(deleteRecord('guru', id, guru.niy));
+          supabaseDeletePromises.push(deleteRecord('guru', id, guru.niy));
         }
       }
 
@@ -619,16 +637,23 @@ const Database = ({ mode }) => {
       for (const id of selectedSiswa) {
         const siswa = siswaData.find(s => s.id === id);
         if (siswa) {
-          deletePromises.push(deleteRecord('siswa', id, siswa.nisn));
+          supabaseDeletePromises.push(deleteRecord('siswa', id, siswa.nisn));
         }
       }
 
-      await Promise.all(deletePromises);
+      // Wait for Supabase deletions to complete
+      await Promise.all(supabaseDeletePromises);
+      console.log('✅ Supabase records deleted');
+
       setSelectedGuru([]);
       setSelectedSiswa([]);
-      await loadData();
 
-      alert('✅ Data berhasil dihapus');
+      // Reload data after a short delay to ensure sync is complete
+      setTimeout(async () => {
+        await loadData();
+        alert('✅ Data berhasil dihapus');
+      }, 1000);
+
     } catch (error) {
       console.error('Delete error:', error);
       alert('❌ Gagal menghapus data: ' + error.message);

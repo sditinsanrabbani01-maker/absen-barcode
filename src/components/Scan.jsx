@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Button, IconButton, Select, MenuItem, FormControl, InputLabel, DialogTitle, DialogContent, DialogActions } from '@mui/material';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import FlipCameraAndroidIcon from '@mui/icons-material/FlipCameraAndroid';
 import CropSquareIcon from '@mui/icons-material/CropSquare';
