@@ -37,6 +37,7 @@ const SyncStatus = () => {
   const [connectionStatus, setConnectionStatus] = useState(realtimeManager.getConnectionStatus());
   const [snackbar, setSnackbar] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [historyDialog, setHistoryDialog] = useState(false);
 
   useEffect(() => {
     // ============================================================================
@@ -259,9 +260,14 @@ const SyncStatus = () => {
               )}
             </Box>
 
-            <Typography variant="caption" color="text.secondary">
-              Real-time subscriptions aktif
-            </Typography>
+            <Button
+              size="small"
+              startIcon={<HistoryIcon />}
+              onClick={() => setHistoryDialog(true)}
+              sx={{ fontSize: '0.75rem' }}
+            >
+              Detail
+            </Button>
           </Box>
         </Box>
       </Popover>
