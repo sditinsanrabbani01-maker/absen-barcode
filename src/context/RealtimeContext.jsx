@@ -173,8 +173,8 @@ export const RealtimeProvider = ({ children }) => {
     return globalRealtimeManager.subscribeToTable(tableName, callback);
   };
 
-  const deleteRecord = async (tableName, id) => {
-    return globalRealtimeManager.delete(tableName, id);
+  const deleteRecord = async (tableName, id, identifier = null) => {
+    return globalRealtimeManager.delete(tableName, id, identifier);
   };
 
   const getConnectionStatus = () => {
