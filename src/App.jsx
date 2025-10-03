@@ -33,7 +33,7 @@ import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import Presensi from './components/Presensi';
 import { DatabaseService } from './config/supabase';
-import { syncManager, realtimeManager } from './services/SyncManager';
+import { realtimeManager } from './services/SyncManager';
 import { AuthService } from './services/AuthService';
 import SyncStatus from './components/SyncStatus';
 

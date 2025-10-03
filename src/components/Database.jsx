@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import { CloudUpload, CloudDownload, GetApp, Publish } from '@mui/icons-material';
 import { db, clearAllData, resetApplication } from '../database';
 import { DatabaseService, supabase } from '../config/supabase';
-import { syncManager, realtimeManager } from '../services/SyncManager';
+import { realtimeManager } from '../services/SyncManager';
 
 const Database = ({ mode }) => {
   // State management
