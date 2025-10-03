@@ -18,27 +18,45 @@ class GlobalRealtimeManager {
     * Delete a record from a table
     * @param {string} tableName - Name of the table to delete from
     * @param {string|number} id - ID of the record to delete
+    * @param {string} identifier - Unique identifier (niy for guru, nisn for siswa)
     * @returns {Promise} Promise that resolves when deletion is complete
     */
-   async delete(tableName, id) {
+   async delete(tableName, id, identifier = null) {
      console.log(`🗑️ Deleting record with ID ${id} from table: ${tableName}`);
 
      try {
-       const { data, error } = await supabase
-         .from(tableName)
-         .delete()
-         .eq('id', id)
-         .select();
+       let deleteQuery;
+
+       // Use unique identifier field if provided, otherwise use id
+       if (identifier) {
+         const fieldName = tableName === 'guru' ? 'niy' : 'nisn';
+         console.log(`🔍 Using ${fieldName} for deletion: ${identifier}`);
+         deleteQuery = supabase
+           .from(tableName)
+           .delete()
+           .eq(fieldName, identifier)
+           .select();
+       } else {
+         // Fallback to id if no identifier provided (for backward compatibility)
+         console.log(`⚠️ Using id for deletion: ${id}`);
+         deleteQuery = supabase
+           .from(tableName)
+           .delete()
+           .eq('id', id)
+           .select();
+       }
+
+       const { data, error } = await deleteQuery;
 
        if (error) {
          console.error(`❌ Error deleting from ${tableName}:`, error);
          throw error;
        }
 
-       console.log(`✅ Successfully deleted record ${id} from ${tableName}`);
+       console.log(`✅ Successfully deleted record ${identifier || id} from ${tableName}`);
        return data;
      } catch (error) {
-       console.error(`❌ Failed to delete record ${id} from ${tableName}:`, error);
+       console.error(`❌ Failed to delete record ${identifier || id} from ${tableName}:`, error);
        throw error;
      }
    }

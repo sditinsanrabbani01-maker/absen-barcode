@@ -606,8 +606,22 @@ const Database = ({ mode }) => {
 
     try {
       const deletePromises = [];
-      selectedGuru.forEach(id => deletePromises.push(deleteRecord('guru', id)));
-      selectedSiswa.forEach(id => deletePromises.push(deleteRecord('siswa', id)));
+
+      // Delete guru records with their niy identifier
+      for (const id of selectedGuru) {
+        const guru = guruData.find(g => g.id === id);
+        if (guru) {
+          deletePromises.push(deleteRecord('guru', id, guru.niy));
+        }
+      }
+
+      // Delete siswa records with their nisn identifier
+      for (const id of selectedSiswa) {
+        const siswa = siswaData.find(s => s.id === id);
+        if (siswa) {
+          deletePromises.push(deleteRecord('siswa', id, siswa.nisn));
+        }
+      }
 
       await Promise.all(deletePromises);
       setSelectedGuru([]);
