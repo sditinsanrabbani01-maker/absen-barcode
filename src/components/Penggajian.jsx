@@ -4,7 +4,7 @@ import {
   Card, CardContent, Grid, Alert, FormControl, InputLabel, Select, MenuItem, Chip, Tabs, Tab, Divider, IconButton, Tooltip, LinearProgress
 } from '@mui/material';
 import {
-  UploadFile, Settings, WhatsApp, PictureAsPdf, Edit, Delete, Refresh, Calculate, Save, Close, CheckCircle, Error
+  UploadFile, Settings, WhatsApp, PictureAsPdf, Edit, Delete, Refresh, Calculate, Save, Close, CheckCircle, Error, Print, Description
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -35,6 +35,195 @@ const Penggajian = ({ mode }) => {
     if (!amount || amount === 0) return 0;
     return Math.round(amount / 1000) * 1000;
   }, []);
+
+  // Generate professional salary slip
+  const generateSalarySlip = (employee) => {
+    const currentDate = new Date();
+    const monthName = months.find(m => m.value === selectedMonth)?.label;
+
+    const grossSalary = ((employee.calculated_base_salary || employee.gaji_pokok || 0)) +
+                      (employee.tunjangan_kinerja || 0) +
+                      (employee.tunjangan_umum || 0) +
+                      (employee.tunjangan_istri || 0) +
+                      (employee.tunjangan_anak || 0) +
+                      (employee.tunjangan_kepala_sekolah || 0) +
+                      (employee.tunjangan_wali_kelas || 0) +
+                      (employee.honor_bendahara || 0);
+
+    return `
+SLIP GAJI SDIT INSAN RABBANI
+${'='.repeat(50)}
+
+PERIODE     : ${monthName} ${selectedYear}
+NAMA        : ${employee.nama}
+JABATAN     : ${employee.jabatan}
+STATUS      : ${employee.status || 'PTY'}
+NIY         : ${employee.niy || employee.nisn || '-'}
+
+${'-'.repeat(50)}
+PENGHASILAN BRUTO
+${'-'.repeat(50)}
+Gaji Pokok              : Rp ${(employee.calculated_base_salary || employee.gaji_pokok || 0).toLocaleString()}
+Tunjangan Kinerja       : Rp ${(employee.tunjangan_kinerja || 0).toLocaleString()}
+Tunjangan Umum          : Rp ${(employee.tunjangan_umum || 0).toLocaleString()}
+Tunjangan Istri         : Rp ${(employee.tunjangan_istri || 0).toLocaleString()}
+Tunjangan Anak          : Rp ${(employee.tunjangan_anak || 0).toLocaleString()}
+Tunjangan Kepala Sekolah: Rp ${(employee.tunjangan_kepala_sekolah || 0).toLocaleString()}
+Tunjangan Wali Kelas    : Rp ${(employee.tunjangan_wali_kelas || 0).toLocaleString()}
+Honor Bendahara         : Rp ${(employee.honor_bendahara || 0).toLocaleString()}
+
+TOTAL PENGHASILAN BRUTO : Rp ${grossSalary.toLocaleString()}
+
+${'-'.repeat(50)}
+POTONGAN
+${'-'.repeat(50)}
+Tahap 1 (${employee.attendanceData?.tahap1 || 0}x)        : Rp ${((employee.attendanceData?.tahap1 || 0) * deductionSettings.tahap1).toLocaleString()}
+Tahap 2 (${employee.attendanceData?.tahap2 || 0}x)        : Rp ${((employee.attendanceData?.tahap2 || 0) * deductionSettings.tahap2).toLocaleString()}
+Tidak Hadir (${employee.attendanceData?.tidakHadir || 0}x)  : Rp ${((employee.attendanceData?.tidakHadir || 0) * deductionSettings.tidakHadir).toLocaleString()}
+Tanpa Keterangan (${employee.attendanceData?.tanpaKeterangan || 0}x): Rp ${((employee.attendanceData?.tanpaKeterangan || 0) * deductionSettings.tanpaKeterangan).toLocaleString()}
+
+TOTAL POTONGAN          : Rp ${(employee.deductions?.totalDeduction || 0).toLocaleString()}
+
+${'-'.repeat(50)}
+PENGHASILAN BERSIH      : Rp ${(employee.totalSalary || 0).toLocaleString()}
+PEMBULATAN KE ATAS      : Rp ${roundToThousand(employee.totalSalary || 0).toLocaleString()}
+${'-'.repeat(50)}
+
+KETERANGAN : ${employee.keterangan || '-'}
+
+Malili, ${currentDate.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    })}
+
+Kepala SDIT Insan Rabbani
+
+
+
+Yang Menerima,
+
+${employee.nama}
+NIY: ${employee.niy || employee.nisn || '-'}
+    `;
+  };
+
+  // Generate salary slip PDF
+  const generateSalarySlipPDF = (employee) => {
+    const doc = new jsPDF();
+    const monthName = months.find(m => m.value === selectedMonth)?.label;
+    const currentDate = new Date();
+
+    // Header
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SLIP GAJI', 105, 20, { align: 'center' });
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
+    doc.text('SDIT INSAN RABBANI', 105, 30, { align: 'center' });
+
+    // Employee info
+    doc.setFontSize(10);
+    let yPosition = 50;
+
+    doc.text(`Periode: ${monthName} ${selectedYear}`, 20, yPosition);
+    yPosition += 7;
+    doc.text(`Nama: ${employee.nama}`, 20, yPosition);
+    yPosition += 7;
+    doc.text(`Jabatan: ${employee.jabatan}`, 20, yPosition);
+    yPosition += 7;
+    doc.text(`Status: ${employee.status || 'PTY'}`, 20, yPosition);
+    yPosition += 7;
+    doc.text(`NIY: ${employee.niy || employee.nisn || '-'}`, 20, yPosition);
+    yPosition += 15;
+
+    // Earnings table
+    doc.text('PENGHASILAN:', 20, yPosition);
+    yPosition += 10;
+
+    const earningsData = [
+      ['Gaji Pokok', `Rp ${(employee.calculated_base_salary || employee.gaji_pokok || 0).toLocaleString()}`],
+      ['Tunjangan Kinerja', `Rp ${(employee.tunjangan_kinerja || 0).toLocaleString()}`],
+      ['Tunjangan Umum', `Rp ${(employee.tunjangan_umum || 0).toLocaleString()}`],
+      ['Tunjangan Istri', `Rp ${(employee.tunjangan_istri || 0).toLocaleString()}`],
+      ['Tunjangan Anak', `Rp ${(employee.tunjangan_anak || 0).toLocaleString()}`],
+      ['Tunj. Kepala Sekolah', `Rp ${(employee.tunjangan_kepala_sekolah || 0).toLocaleString()}`],
+      ['Tunj. Wali Kelas', `Rp ${(employee.tunjangan_wali_kelas || 0).toLocaleString()}`],
+      ['Honor Bendahara', `Rp ${(employee.honor_bendahara || 0).toLocaleString()}`]
+    ];
+
+    doc.autoTable({
+      startY: yPosition,
+      head: [['Komponen', 'Jumlah']],
+      body: earningsData,
+      theme: 'grid',
+      styles: { fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 80 },
+        1: { cellWidth: 40, halign: 'right' }
+      }
+    });
+
+    yPosition = doc.lastAutoTable.finalY + 15;
+
+    // Deductions table
+    doc.text('POTONGAN:', 20, yPosition);
+    yPosition += 10;
+
+    const deductionsData = [
+      [`Tahap 1 (${employee.attendanceData?.tahap1 || 0}x)`, `Rp ${((employee.attendanceData?.tahap1 || 0) * deductionSettings.tahap1).toLocaleString()}`],
+      [`Tahap 2 (${employee.attendanceData?.tahap2 || 0}x)`, `Rp ${((employee.attendanceData?.tahap2 || 0) * deductionSettings.tahap2).toLocaleString()}`],
+      [`Tidak Hadir (${employee.attendanceData?.tidakHadir || 0}x)`, `Rp ${((employee.attendanceData?.tidakHadir || 0) * deductionSettings.tidakHadir).toLocaleString()}`],
+      [`Tanpa Keterangan (${employee.attendanceData?.tanpaKeterangan || 0}x)`, `Rp ${((employee.attendanceData?.tanpaKeterangan || 0) * deductionSettings.tanpaKeterangan).toLocaleString()}`]
+    ];
+
+    doc.autoTable({
+      startY: yPosition,
+      head: [['Potongan', 'Jumlah']],
+      body: deductionsData,
+      theme: 'grid',
+      styles: { fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 80 },
+        1: { cellWidth: 40, halign: 'right' }
+      }
+    });
+
+    yPosition = doc.lastAutoTable.finalY + 15;
+
+    // Summary
+    const grossSalary = ((employee.calculated_base_salary || employee.gaji_pokok || 0)) +
+                      (employee.tunjangan_kinerja || 0) +
+                      (employee.tunjangan_umum || 0) +
+                      (employee.tunjangan_istri || 0) +
+                      (employee.tunjangan_anak || 0) +
+                      (employee.tunjangan_kepala_sekolah || 0) +
+                      (employee.tunjangan_wali_kelas || 0) +
+                      (employee.honor_bendahara || 0);
+
+    doc.text(`TOTAL PENGHASILAN BRUTO : Rp ${grossSalary.toLocaleString()}`, 20, yPosition);
+    yPosition += 7;
+    doc.text(`TOTAL POTONGAN         : Rp ${(employee.deductions?.totalDeduction || 0).toLocaleString()}`, 20, yPosition);
+    yPosition += 7;
+    doc.text(`PENGHASILAN BERSIH     : Rp ${(employee.totalSalary || 0).toLocaleString()}`, 20, yPosition);
+    yPosition += 7;
+    doc.text(`PEMBULATAN KE ATAS     : Rp ${roundToThousand(employee.totalSalary || 0).toLocaleString()}`, 20, yPosition);
+    yPosition += 15;
+
+    // Footer
+    doc.text(`Malili, ${currentDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`, 20, yPosition);
+    yPosition += 10;
+    doc.text('Kepala SDIT Insan Rabbani', 20, yPosition);
+    yPosition += 20;
+    doc.text('Yang Menerima,', 20, yPosition);
+    yPosition += 15;
+    doc.text(employee.nama, 20, yPosition);
+    yPosition += 7;
+    doc.text(`NIY: ${employee.niy || employee.nisn || '-'}`, 20, yPosition);
+
+    doc.save(`Slip_Gaji_${employee.nama}_${monthName}_${selectedYear}.pdf`);
+  };
 
   // Memoized calculations for better performance
   const summaryStats = useMemo(() => {
@@ -139,6 +328,11 @@ const Penggajian = ({ mode }) => {
     message: '',
     severity: 'success'
   });
+
+  // Salary slip dialog state
+  const [salarySlipDialog, setSalarySlipDialog] = useState(false);
+  const [selectedEmployeeForSlip, setSelectedEmployeeForSlip] = useState(null);
+  const [slipPreviewMode, setSlipPreviewMode] = useState(false);
 
   const months = [
     { value: 1, label: 'Januari' }, { value: 2, label: 'Februari' }, { value: 3, label: 'Maret' },
@@ -1783,6 +1977,19 @@ Keterangan\t: ${employee.keterangan || '-'}
             <Grid item xs={12} sm={6} md={2}>
               <Button
                 variant="outlined"
+                startIcon={<Description />}
+                onClick={() => setSalarySlipDialog(true)}
+                disabled={payrollData.length === 0}
+                fullWidth
+                title="Generate salary slips for individual employees"
+              >
+                Slip Gaji
+              </Button>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                variant="outlined"
                 startIcon={<Refresh />}
                 onClick={loadPayrollData}
                 disabled={loading}
@@ -2451,6 +2658,18 @@ Keterangan\t: ${employee.keterangan || '-'}
                                   </IconButton>
                                 </Tooltip>
                               )}
+                              <Tooltip title="Generate Salary Slip">
+                                <IconButton
+                                  color="secondary"
+                                  size="small"
+                                  onClick={() => {
+                                    setSelectedEmployeeForSlip(employee);
+                                    setSlipPreviewMode(true);
+                                  }}
+                                >
+                                  <Description />
+                                </IconButton>
+                              </Tooltip>
                               <Tooltip title="Kirim Amprah Gaji via WhatsApp">
                                 <IconButton
                                   color="success"
@@ -2688,9 +2907,151 @@ Keterangan\t: ${employee.keterangan || '-'}
             Simpan
           </Button>
         </DialogActions>
-      </Dialog>
-    </Box>
-  );
-};
+       </Dialog>
+
+       {/* Salary Slip Dialog */}
+       <Dialog
+         open={salarySlipDialog || slipPreviewMode}
+         onClose={() => {
+           setSalarySlipDialog(false);
+           setSlipPreviewMode(false);
+           setSelectedEmployeeForSlip(null);
+         }}
+         maxWidth="md"
+         fullWidth
+       >
+         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+           <Description /> Generate Slip Gaji
+         </DialogTitle>
+         <DialogContent>
+           {!slipPreviewMode ? (
+             // Employee Selection
+             <Box>
+               <Typography variant="body2" sx={{ mb: 3 }}>
+                 Pilih guru untuk generate slip gaji:
+               </Typography>
+               <FormControl fullWidth sx={{ mb: 2 }}>
+                 <InputLabel>Pilih Guru</InputLabel>
+                 <Select
+                   value={selectedEmployeeForSlip?.id || ''}
+                   onChange={(e) => {
+                     const employee = payrollData.find(emp => emp.id === e.target.value);
+                     setSelectedEmployeeForSlip(employee);
+                   }}
+                   label="Pilih Guru"
+                 >
+                   {payrollData.map(employee => (
+                     <MenuItem key={employee.id} value={employee.id}>
+                       {employee.nama} - {employee.jabatan}
+                     </MenuItem>
+                   ))}
+                 </Select>
+               </FormControl>
+
+               {selectedEmployeeForSlip && (
+                 <Alert severity="info" sx={{ mt: 2 }}>
+                   <Typography variant="body2">
+                     <strong>Preview akan ditampilkan untuk:</strong><br/>
+                     {selectedEmployeeForSlip.nama}<br/>
+                     {selectedEmployeeForSlip.jabatan}<br/>
+                     Periode: {months.find(m => m.value === selectedMonth)?.label} {selectedYear}
+                   </Typography>
+                 </Alert>
+               )}
+             </Box>
+           ) : (
+             // Salary Slip Preview
+             <Box>
+               <Typography variant="h6" gutterBottom>
+                 Preview Slip Gaji - {selectedEmployeeForSlip?.nama}
+               </Typography>
+               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                 Periode: {months.find(m => m.value === selectedMonth)?.label} {selectedYear}
+               </Typography>
+
+               <Box sx={{
+                 bgcolor: 'grey.50',
+                 p: 3,
+                 borderRadius: 1,
+                 fontFamily: 'monospace',
+                 fontSize: '0.8rem',
+                 whiteSpace: 'pre-line',
+                 maxHeight: '400px',
+                 overflow: 'auto'
+               }}>
+                 {generateSalarySlip(selectedEmployeeForSlip)}
+               </Box>
+             </Box>
+           )}
+         </DialogContent>
+         <DialogActions>
+           {!slipPreviewMode ? (
+             <>
+               <Button onClick={() => {
+                 setSalarySlipDialog(false);
+                 setSelectedEmployeeForSlip(null);
+               }}>
+                 Batal
+               </Button>
+               <Button
+                 variant="contained"
+                 onClick={() => {
+                   if (selectedEmployeeForSlip) {
+                     setSlipPreviewMode(true);
+                   }
+                 }}
+                 disabled={!selectedEmployeeForSlip}
+               >
+                 Preview
+               </Button>
+             </>
+           ) : (
+             <>
+               <Button onClick={() => setSlipPreviewMode(false)}>
+                 Kembali
+               </Button>
+               <Button
+                 variant="contained"
+                 startIcon={<Print />}
+                 onClick={() => {
+                   // Print salary slip
+                   const printWindow = window.open('', '_blank');
+                   printWindow.document.write(`
+                     <html>
+                       <head>
+                         <title>Slip Gaji - ${selectedEmployeeForSlip?.nama}</title>
+                         <style>
+                           body { font-family: monospace; margin: 20px; }
+                           .header { text-align: center; margin-bottom: 20px; }
+                           .section { margin: 15px 0; }
+                           .total { font-weight: bold; border-top: 2px solid #000; padding-top: 5px; }
+                         </style>
+                       </head>
+                       <body>
+                         <pre>${generateSalarySlip(selectedEmployeeForSlip)}</pre>
+                       </body>
+                     </html>
+                   `);
+                   printWindow.document.close();
+                   printWindow.print();
+                 }}
+               >
+                 Print
+               </Button>
+               <Button
+                 variant="contained"
+                 color="primary"
+                 startIcon={<PictureAsPdf />}
+                 onClick={() => generateSalarySlipPDF(selectedEmployeeForSlip)}
+               >
+                 Download PDF
+               </Button>
+             </>
+           )}
+         </DialogActions>
+       </Dialog>
+     </Box>
+   );
+  };
 
 export default Penggajian;
