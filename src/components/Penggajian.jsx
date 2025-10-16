@@ -4,7 +4,7 @@ import {
   Card, CardContent, Grid, Alert, FormControl, InputLabel, Select, MenuItem, Chip, Tabs, Tab, Divider, IconButton, Tooltip, LinearProgress
 } from '@mui/material';
 import {
-  UploadFile, Settings, WhatsApp, PictureAsPdf, Edit, Delete, Refresh, Calculate, Save, Close, CheckCircle, Error, Print, Description
+  UploadFile, Settings, WhatsApp, PictureAsPdf, Edit, Delete, Refresh, Calculate, Save, Close, CheckCircle, Error, Print, Description, Backup, Restore, Download, CloudUpload
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -225,6 +225,146 @@ NIY: ${employee.niy || employee.nisn || '-'}
     doc.save(`Slip_Gaji_${employee.nama}_${monthName}_${selectedYear}.pdf`);
   };
 
+  // Backup all data to JSON file
+  const backupAllData = async () => {
+    setBackupLoading(true);
+    try {
+      console.log('💾 Starting complete data backup...');
+
+      const backupData = {
+        metadata: {
+          backupDate: new Date().toISOString(),
+          version: '1.0',
+          description: 'Complete payroll and attendance system backup'
+        },
+        guru: await db.guru.toArray(),
+        attendance: await db.attendance.toArray(),
+        perizinan: await db.perizinan.toArray(),
+        users: await db.users.toArray(),
+        school_settings: await db.school_settings.toArray(),
+        attendance_settings: await db.attendance_settings.toArray()
+      };
+
+      // Create and download backup file
+      const dataStr = JSON.stringify(backupData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `backup_ingat_waktu_${new Date().toISOString().split('T')[0]}.json`;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setNotification({
+        open: true,
+        message: `Backup berhasil! File telah didownload dengan ${Object.keys(backupData).length - 1} tabel data.`,
+        severity: 'success'
+      });
+
+      console.log('✅ Complete backup created successfully');
+    } catch (error) {
+      console.error('❌ Backup error:', error);
+      setNotification({
+        open: true,
+        message: `Gagal membuat backup: ${error.message}`,
+        severity: 'error'
+      });
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  // Restore data from backup file
+  const restoreFromBackup = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setRestoreLoading(true);
+    try {
+      console.log('🔄 Starting data restore...');
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const backupData = JSON.parse(e.target.result);
+
+          // Validate backup file structure
+          if (!backupData.metadata || !backupData.guru) {
+            throw new Error('File backup tidak valid atau rusak');
+          }
+
+          // Confirm restore operation
+          const confirmRestore = window.confirm(
+            `⚠️ PERINGATAN: Operasi ini akan mengganti semua data saat ini!\n\n` +
+            `Backup dari: ${new Date(backupData.metadata.backupDate).toLocaleDateString('id-ID')}\n` +
+            `Jumlah tabel: ${Object.keys(backupData).length - 1}\n` +
+            `Data guru: ${backupData.guru.length} records\n\n` +
+            `Apakah Anda yakin ingin melanjutkan?`
+          );
+
+          if (!confirmRestore) {
+            setRestoreLoading(false);
+            return;
+          }
+
+          // Clear existing data and restore from backup
+          await db.transaction('rw', db.guru, db.attendance, db.perizinan, db.users, db.school_settings, db.attendance_settings, async () => {
+            await db.guru.clear();
+            await db.attendance.clear();
+            await db.perizinan.clear();
+            await db.users.clear();
+            await db.school_settings.clear();
+            await db.attendance_settings.clear();
+
+            // Restore data
+            if (backupData.guru.length > 0) await db.guru.bulkAdd(backupData.guru);
+            if (backupData.attendance.length > 0) await db.attendance.bulkAdd(backupData.attendance);
+            if (backupData.perizinan.length > 0) await db.perizinan.bulkAdd(backupData.perizinan);
+            if (backupData.users.length > 0) await db.users.bulkAdd(backupData.users);
+            if (backupData.school_settings.length > 0) await db.school_settings.bulkAdd(backupData.school_settings);
+            if (backupData.attendance_settings.length > 0) await db.attendance_settings.bulkAdd(backupData.attendance_settings);
+          });
+
+          setNotification({
+            open: true,
+            message: `✅ Restore berhasil! ${backupData.guru.length} data guru dan data lainnya telah dipulihkan.`,
+            severity: 'success'
+          });
+
+          console.log('✅ Data restore completed successfully');
+
+          // Reload data
+          await loadPayrollData();
+
+        } catch (parseError) {
+          console.error('❌ Restore parse error:', parseError);
+          setNotification({
+            open: true,
+            message: `Gagal memproses file backup: ${parseError.message}`,
+            severity: 'error'
+          });
+        }
+      };
+
+      reader.readAsText(file);
+    } catch (error) {
+      console.error('❌ Restore error:', error);
+      setNotification({
+        open: true,
+        message: `Gagal restore data: ${error.message}`,
+        severity: 'error'
+      });
+    } finally {
+      setRestoreLoading(false);
+      // Clear file input
+      event.target.value = '';
+    }
+  };
+
   // Memoized calculations for better performance
   const summaryStats = useMemo(() => {
     if (payrollData.length === 0) {
@@ -333,6 +473,12 @@ NIY: ${employee.niy || employee.nisn || '-'}
   const [salarySlipDialog, setSalarySlipDialog] = useState(false);
   const [selectedEmployeeForSlip, setSelectedEmployeeForSlip] = useState(null);
   const [slipPreviewMode, setSlipPreviewMode] = useState(false);
+
+  // Backup and restore dialog state
+  const [backupDialog, setBackupDialog] = useState(false);
+  const [restoreDialog, setRestoreDialog] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
 
   const months = [
     { value: 1, label: 'Januari' }, { value: 2, label: 'Februari' }, { value: 3, label: 'Maret' },
@@ -2102,6 +2248,38 @@ Keterangan\t: ${employee.keterangan || '-'}
             <Grid item xs={12} sm={6} md={2}>
               <Button
                 variant="outlined"
+                startIcon={<Backup />}
+                onClick={() => setBackupDialog(true)}
+                disabled={!roleCapabilities.canExport}
+                fullWidth
+                title={!roleCapabilities.canExport ? `Role ${roleCapabilities.name} tidak dapat backup data` : 'Backup semua data sistem'}
+              >
+                Backup Data
+              </Button>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                variant="outlined"
+                startIcon={<Restore />}
+                component="label"
+                disabled={!roleCapabilities.canImport}
+                fullWidth
+                title={!roleCapabilities.canImport ? `Role ${roleCapabilities.name} tidak dapat restore data` : 'Restore data dari file backup'}
+              >
+                Restore Data
+                <input
+                  type="file"
+                  accept=".json"
+                  hidden
+                  onChange={restoreFromBackup}
+                />
+              </Button>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                variant="outlined"
                 startIcon={<Settings />}
                 onClick={async () => {
                   try {
@@ -3049,9 +3227,114 @@ Keterangan\t: ${employee.keterangan || '-'}
              </>
            )}
          </DialogActions>
-       </Dialog>
-     </Box>
-   );
-  };
+        </Dialog>
+ 
+        {/* Backup Dialog */}
+        <Dialog
+          open={backupDialog}
+          onClose={() => setBackupDialog(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Backup /> Backup Data Sistem
+          </DialogTitle>
+          <DialogContent>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="body2">
+                <strong>Backup akan mencakup:</strong><br/>
+                • Data Guru (profil, gaji, tunjangan)<br/>
+                • Data Absensi (kehadiran harian)<br/>
+                • Data Perizinan (sakit, izin, cuti)<br/>
+                • Data Users (akun sistem)<br/>
+                • Pengaturan Sekolah<br/>
+                • Pengaturan Potongan
+              </Typography>
+            </Alert>
+ 
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              File backup akan didownload dalam format JSON dan dapat digunakan untuk restore data di kemudian hari.
+            </Typography>
+ 
+            {backupLoading && (
+              <Alert severity="info">
+                <Typography variant="body2">
+                  🔄 Membuat backup data... Mohon tunggu sebentar.
+                </Typography>
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setBackupDialog(false)} disabled={backupLoading}>
+              Batal
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<Download />}
+              onClick={backupAllData}
+              disabled={backupLoading}
+            >
+              {backupLoading ? 'Membuat Backup...' : 'Download Backup'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+ 
+        {/* Restore Dialog */}
+        <Dialog
+          open={restoreDialog}
+          onClose={() => setRestoreDialog(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Restore /> Restore Data Sistem
+          </DialogTitle>
+          <DialogContent>
+            <Alert severity="warning" sx={{ mb: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                ⚠️ PERINGATAN
+              </Typography>
+              <Typography variant="body2">
+                Operasi restore akan <strong>mengganti semua data saat ini</strong> dengan data dari file backup.
+                Pastikan file backup yang dipilih adalah yang benar.
+              </Typography>
+            </Alert>
+ 
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Pilih file backup JSON yang telah didownload sebelumnya.
+            </Typography>
+ 
+            {restoreLoading && (
+              <Alert severity="info">
+                <Typography variant="body2">
+                  🔄 Memproses restore data... Mohon tunggu sebentar.
+                </Typography>
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRestoreDialog(false)} disabled={restoreLoading}>
+              Batal
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<CloudUpload />}
+              component="label"
+              disabled={restoreLoading}
+            >
+              Pilih File Backup
+              <input
+                type="file"
+                accept=".json"
+                hidden
+                onChange={restoreFromBackup}
+              />
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    );
+   };
 
 export default Penggajian;
