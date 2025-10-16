@@ -91,11 +91,11 @@ const Scan = () => {
       const gainNode = audioContext.createGain();
 
       // Configure beep sound (high-pitched, short duration)
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800Hz beep
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.setValueAtTime(2500, audioContext.currentTime); // 800Hz beep
 
       // Configure volume envelope
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime); // Start volume
+      gainNode.gain.setValueAtTime(10, audioContext.currentTime); // Start volume
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1); // Fade out
 
       // Connect nodes
@@ -104,7 +104,7 @@ const Scan = () => {
 
       // Play beep
       oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.1); // 100ms beep
+      oscillator.stop(audioContext.currentTime + 0.05); // 100ms beep
 
     } catch (error) {
       console.warn('Could not play beep sound:', error);
@@ -208,22 +208,26 @@ const Scan = () => {
 
       // Enhanced success callback with retry mechanism
       const enhancedOnScanSuccess = async (decodedText, decodedResult) => {
-        const currentTime = Date.now();
-        setLastScanTime(currentTime);
-        setScanAttempts(prev => prev + 1);
+    const currentTime = new Date(); // Waktu lokal perangkat
+    const localTimeString = currentTime.toLocaleString('id-ID', { timeZone: 'Asia/Makassar' }); // Mengonversi waktu ke zona waktu WITA (Asia/Makassar)
 
-        console.log('🔍 QR Code detected:', decodedText);
-        console.log('📊 Detection confidence:', decodedResult.result.correctionLevel || 'Unknown');
+    setLastScanTime(localTimeString); // Menyimpan waktu dalam format lokal WITA
+    setScanAttempts(prev => prev + 1);
 
-        // Reset retry count on successful scan
-        setRetryCount(0);
+    console.log('🔍 QR Code detected:', decodedText);
+    console.log('📊 Detection confidence:', decodedResult.result.correctionLevel || 'Unknown');
+    console.log('📅 Scan Time (WITA):', localTimeString); // Menampilkan waktu dalam WITA
 
-        // Play success beep sound
-        playBeepSound();
+    // Reset retry count on successful scan
+    setRetryCount(0);
 
-        // Process the scan result
-        await onScanSuccess(decodedText);
-      };
+    // Play success beep sound
+    playBeepSound();
+
+    // Process the scan result
+    await onScanSuccess(decodedText);
+};
+
 
       // Enhanced failure callback with retry logic
       const enhancedOnScanFailure = (error) => {
@@ -741,7 +745,14 @@ Terima kasih atas perhatian Anda 🙏`;
 
 
   const recordAttendance = async (user) => {
-    const today = new Date().toISOString().split('T')[0];
+    // Get local date in Asia/Makassar timezone (UTC+8)
+    const getLocalDate = () => {
+      const now = new Date();
+      const makassarTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
+      return makassarTime.toISOString().split('T')[0];
+    };
+
+    const today = getLocalDate();
     const currentTime = new Date().toTimeString().split(' ')[0];
 
     let status, keterangan, att;

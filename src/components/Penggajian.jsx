@@ -401,11 +401,13 @@ NIY: ${employee.niy || employee.nisn || '-'}
   const handleYearChange = useCallback((newYear) => {
     setSelectedYear(newYear);
   }, []);
-  // Function to get previous month (for payroll processing)
+  // Function to get previous month (for payroll processing) - using local timezone
   const getPreviousMonth = () => {
+    // Use Asia/Makassar timezone (UTC+8)
     const now = new Date();
-    const currentMonth = now.getMonth() + 1; // getMonth() returns 0-11
-    const currentYear = now.getFullYear();
+    const makassarTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+    const currentMonth = makassarTime.getMonth() + 1; // getMonth() returns 0-11
+    const currentYear = makassarTime.getFullYear();
 
     // If current month is January, previous month is December of previous year
     if (currentMonth === 1) {
@@ -866,8 +868,16 @@ NIY: ${employee.niy || employee.nisn || '-'}
 
   const calculateEmployeeAttendance = async (employee) => {
     const identifier = employee.niy || employee.nisn;
-    const startDate = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}-01`;
-    const endDate = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}-${new Date(selectedYear, selectedMonth, 0).getDate()}`;
+
+    // Use local timezone for date calculations
+    const getLocalDate = (year, month, day = 1) => {
+      const utcDate = new Date(year, month - 1, day);
+      const makassarTime = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000));
+      return makassarTime.toISOString().split('T')[0];
+    };
+
+    const startDate = getLocalDate(selectedYear, selectedMonth, 1);
+    const endDate = getLocalDate(selectedYear, selectedMonth + 1, 0); // Last day of selected month
 
     // Get attendance records for the month from both local and Supabase
     let attendanceRecords = [];
@@ -899,7 +909,7 @@ NIY: ${employee.niy || employee.nisn || '-'}
       // Fallback to local
       attendanceRecords = await db.attendance.toArray();
       attendanceRecords = attendanceRecords.filter(record => {
-        const recordDate = record.tanggal;
+        let recordDate = record.tanggal;
         const dateStr = recordDate.split('T')[0] || recordDate.split(' ')[0];
         return record.identifier === identifier && dateStr >= startDate && dateStr <= endDate;
       });
@@ -935,14 +945,17 @@ NIY: ${employee.niy || employee.nisn || '-'}
       perizinanRecords = perizinanRecords.filter(record => {
         let recordDate = record.tanggal;
 
-        // Handle Excel serial dates (numbers)
+        // Handle Excel serial dates (numbers) - convert to local timezone
         if (!isNaN(recordDate) && !isNaN(parseFloat(recordDate))) {
           const serialDate = parseInt(recordDate);
           const excelEpoch = new Date(1900, 0, 1);
-          const jsDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
-          recordDate = jsDate.toISOString().split('T')[0];
+          const utcDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
+          const localDate = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000)); // Convert to local timezone
+          recordDate = localDate.toISOString().split('T')[0];
         } else if (typeof recordDate === 'string') {
-          recordDate = recordDate.split('T')[0] || recordDate.split(' ')[0];
+          const utcDate = new Date(recordDate);
+          const localDate = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000)); // Convert to local timezone
+          recordDate = localDate.toISOString().split('T')[0];
         }
 
         return record.identifier === identifier && recordDate >= startDate && recordDate <= endDate;
@@ -998,8 +1011,10 @@ NIY: ${employee.niy || employee.nisn || '-'}
     const daysInMonth = new Date(year, month, 0).getDate();
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, month - 1, day);
-      const dayOfWeek = date.getDay();
+      // Use local timezone for date calculations
+      const utcDate = new Date(year, month - 1, day);
+      const localDate = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
+      const dayOfWeek = localDate.getDay();
       // Count weekdays (Monday = 1 to Friday = 5)
       if (dayOfWeek >= 1 && dayOfWeek <= 5) {
         workingDays++;
