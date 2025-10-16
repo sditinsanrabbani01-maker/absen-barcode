@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Card, CardContent, Grid, Alert, FormControl, InputLabel, Select, MenuItem, Chip, Tabs, Tab, Divider, IconButton, Tooltip, LinearProgress
 } from '@mui/material';
 import {
-  UploadFile, Settings, WhatsApp, PictureAsPdf, Edit, Delete, Refresh, Calculate, Save, Close
+  UploadFile, Settings, WhatsApp, PictureAsPdf, Edit, Delete, Refresh, Calculate, Save, Close, CheckCircle, Error
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -30,11 +30,48 @@ const Penggajian = ({ mode }) => {
   const currentUser = AuthService.getCurrentUser();
   const roleCapabilities = AuthService.getRoleCapabilities(currentUser?.role);
 
-  // Function to round salary to nearest thousand
-  const roundToThousand = (amount) => {
+  // Function to round salary to nearest thousand (memoized)
+  const roundToThousand = useCallback((amount) => {
     if (!amount || amount === 0) return 0;
     return Math.round(amount / 1000) * 1000;
-  };
+  }, []);
+
+  // Memoized calculations for better performance
+  const summaryStats = useMemo(() => {
+    if (payrollData.length === 0) {
+      return {
+        totalEmployees: 0,
+        totalPayroll: 0,
+        totalBaseSalary: 0,
+        totalDeductions: 0,
+        totalTidakHadir: 0
+      };
+    }
+
+    return {
+      totalEmployees: payrollData.length,
+      totalPayroll: payrollData.reduce((sum, emp) => sum + (emp.totalSalary || 0), 0),
+      totalBaseSalary: payrollData.reduce((sum, emp) => {
+        const baseSalary = emp.calculated_base_salary || emp.gaji_pokok || 0;
+        return sum + baseSalary;
+      }, 0),
+      totalDeductions: payrollData.reduce((sum, emp) => sum + (emp.deductions?.totalDeduction || 0), 0),
+      totalTidakHadir: payrollData.reduce((sum, emp) => sum + (emp.attendanceData?.tidakHadir || 0), 0)
+    };
+  }, [payrollData]);
+
+  // Memoized month/year change handlers
+  const handleMonthChange = useCallback((newMonth) => {
+    setSelectedMonth(newMonth);
+    // Auto-adjust year if month is January and current selection would be December
+    if (newMonth === 12 && selectedMonth === 1) {
+      setSelectedYear(selectedYear - 1);
+    }
+  }, [selectedMonth, selectedYear]);
+
+  const handleYearChange = useCallback((newYear) => {
+    setSelectedYear(newYear);
+  }, []);
   // Function to get previous month (for payroll processing)
   const getPreviousMonth = () => {
     const now = new Date();
@@ -59,18 +96,6 @@ const Penggajian = ({ mode }) => {
   const [selectedMonth, setSelectedMonth] = useState(previousMonthData.month);
   const [selectedYear, setSelectedYear] = useState(previousMonthData.year);
 
-  // Function to handle month/year change with automatic adjustment
-  const handleMonthChange = (newMonth) => {
-    setSelectedMonth(newMonth);
-    // Auto-adjust year if month is January and current selection would be December
-    if (newMonth === 12 && selectedMonth === 1) {
-      setSelectedYear(selectedYear - 1);
-    }
-  };
-
-  const handleYearChange = (newYear) => {
-    setSelectedYear(newYear);
-  };
   const [loading, setLoading] = useState(false);
   const [schoolSettings, setSchoolSettings] = useState({});
 
@@ -106,6 +131,13 @@ const Penggajian = ({ mode }) => {
     educationLevel: 'S1',
     startYear: new Date().getFullYear(),
     startMonth: new Date().getMonth() + 1
+  });
+
+  // Success/Error notification state
+  const [notification, setNotification] = useState({
+    open: false,
+    message: '',
+    severity: 'success'
   });
 
   const months = [
@@ -425,38 +457,68 @@ const Penggajian = ({ mode }) => {
     setLoading(true);
     try {
       console.log('🔍 Loading payroll data from Supabase...');
+
       // Get only guru (teachers) data for payroll
       const allEmployees = await DatabaseService.getGuru(true);
+
+      if (!allEmployees || allEmployees.length === 0) {
+        console.warn('⚠️ No employee data found');
+        setPayrollData([]);
+        return;
+      }
+
       console.log(`✅ Loaded ${allEmployees.length} employees from database`);
 
-      // Calculate attendance data for each employee
+      // Calculate attendance data for each employee with error handling
       const payrollWithDeductions = await Promise.all(
         allEmployees.map(async (employee) => {
-          const attendanceData = await calculateEmployeeAttendance(employee);
-          const deductions = calculateDeductions(attendanceData);
+          try {
+            const attendanceData = await calculateEmployeeAttendance(employee);
+            const deductions = calculateDeductions(attendanceData);
 
-          // Calculate base salary (no MK calculation needed)
-          const calculatedBaseSalary = calculateBaseSalary(employee, selectedYear, selectedMonth);
+            // Calculate base salary (no MK calculation needed)
+            const calculatedBaseSalary = calculateBaseSalary(employee, selectedYear, selectedMonth);
 
-          const totalSalary = calculateTotalSalary({
-            ...employee,
-            gaji_pokok: calculatedBaseSalary
-          }, deductions);
+            const totalSalary = calculateTotalSalary({
+              ...employee,
+              gaji_pokok: calculatedBaseSalary
+            }, deductions);
 
-          return {
-            ...employee,
-            attendanceData,
-            deductions,
-            totalSalary,
-            bulan: `${months.find(m => m.value === selectedMonth)?.label} ${selectedYear}`,
-            calculated_base_salary: calculatedBaseSalary
-          };
+            return {
+              ...employee,
+              attendanceData,
+              deductions,
+              totalSalary,
+              bulan: `${months.find(m => m.value === selectedMonth)?.label} ${selectedYear}`,
+              calculated_base_salary: calculatedBaseSalary
+            };
+          } catch (employeeError) {
+            console.error(`❌ Error processing employee ${employee.nama}:`, employeeError);
+            // Return employee with default values if calculation fails
+            return {
+              ...employee,
+              attendanceData: {
+                workingDays: 0, tahap1: 0, tahap2: 0, tidakHadir: 0,
+                sakit: 0, izin: 0, dinasLuar: 0, tanpaKeterangan: 0,
+                totalAttendance: 0, totalPerizinan: 0
+              },
+              deductions: { tahap1Deduction: 0, tahap2Deduction: 0, tidakHadirDeduction: 0, tanpaKeteranganDeduction: 0, totalDeduction: 0 },
+              totalSalary: 0,
+              bulan: `${months.find(m => m.value === selectedMonth)?.label} ${selectedYear}`,
+              calculated_base_salary: 0,
+              error: true // Mark as having error for UI feedback
+            };
+          }
         })
       );
 
       setPayrollData(payrollWithDeductions);
+      console.log(`✅ Payroll data loaded successfully for ${payrollWithDeductions.length} employees`);
+
     } catch (error) {
-      console.error('Error loading payroll data:', error);
+      console.error('❌ Critical error loading payroll data:', error);
+      alert(`❌ Gagal memuat data penggajian: ${error.message}\n\nSilakan periksa koneksi database dan coba lagi.`);
+      setPayrollData([]);
     } finally {
       setLoading(false);
     }
@@ -1237,87 +1299,136 @@ Keterangan\t: ${employee.keterangan || '-'}
   };
 
   const saveBulkEdit = async () => {
+    // Validation
     if (payrollData.length === 0) {
-      alert('Tidak ada data untuk diupdate');
+      alert('❌ Tidak ada data untuk diupdate');
       return;
     }
 
     try {
       console.log('💾 Saving bulk edit to Supabase...');
 
-      // Prepare update data
+      // Validate input values
+      const validateNumericInput = (value, fieldName) => {
+        if (value !== '' && (isNaN(parseFloat(value)) || parseFloat(value) < 0)) {
+          throw new Error(`Nilai ${fieldName} harus berupa angka positif`);
+        }
+      };
+
+      // Validate all numeric fields
+      validateNumericInput(bulkEditValues.gaji_pokok, 'Gaji Pokok');
+      validateNumericInput(bulkEditValues.tunjangan_kinerja, 'Tunjangan Kinerja');
+      validateNumericInput(bulkEditValues.tunjangan_umum, 'Tunjangan Umum');
+      validateNumericInput(bulkEditValues.tunjangan_istri, 'Tunjangan Istri');
+      validateNumericInput(bulkEditValues.tunjangan_anak, 'Tunjangan Anak');
+      validateNumericInput(bulkEditValues.tunjangan_kepala_sekolah, 'Tunjangan Kepala Sekolah');
+      validateNumericInput(bulkEditValues.tunjangan_wali_kelas, 'Tunjangan Wali Kelas');
+      validateNumericInput(bulkEditValues.honor_bendahara, 'Honor Bendahara');
+
+      // Prepare update data with validation
       const updateData = {};
+      let hasChanges = false;
+
       if (bulkEditValues.gaji_pokok !== '') {
-        updateData.custom_base_salary = parseFloat(bulkEditValues.gaji_pokok) || 0;
+        const value = parseFloat(bulkEditValues.gaji_pokok) || 0;
+        updateData.custom_base_salary = value;
+        hasChanges = true;
       }
       if (bulkEditValues.tunjangan_kinerja !== '') {
         updateData.tunjangan_kinerja = parseFloat(bulkEditValues.tunjangan_kinerja) || 0;
+        hasChanges = true;
       }
       if (bulkEditValues.tunjangan_umum !== '') {
         updateData.tunjangan_umum = parseFloat(bulkEditValues.tunjangan_umum) || 0;
+        hasChanges = true;
       }
       if (bulkEditValues.tunjangan_istri !== '') {
         updateData.tunjangan_istri = parseFloat(bulkEditValues.tunjangan_istri) || 0;
+        hasChanges = true;
       }
       if (bulkEditValues.tunjangan_anak !== '') {
         updateData.tunjangan_anak = parseFloat(bulkEditValues.tunjangan_anak) || 0;
+        hasChanges = true;
       }
       if (bulkEditValues.tunjangan_kepala_sekolah !== '') {
         updateData.tunjangan_kepala_sekolah = parseFloat(bulkEditValues.tunjangan_kepala_sekolah) || 0;
+        hasChanges = true;
       }
       if (bulkEditValues.tunjangan_wali_kelas !== '') {
         updateData.tunjangan_wali_kelas = parseFloat(bulkEditValues.tunjangan_wali_kelas) || 0;
+        hasChanges = true;
       }
       if (bulkEditValues.honor_bendahara !== '') {
         updateData.honor_bendahara = parseFloat(bulkEditValues.honor_bendahara) || 0;
+        hasChanges = true;
       }
       if (bulkEditValues.keterangan !== '') {
         updateData.keterangan = bulkEditValues.keterangan;
+        hasChanges = true;
       }
 
-      if (Object.keys(updateData).length === 0) {
-        alert('❌ Tidak ada data yang diubah');
+      if (!hasChanges) {
+        alert('❌ Tidak ada data yang diubah. Silakan isi field yang ingin diupdate.');
         return;
       }
 
       updateData.updated_at = new Date().toISOString();
 
-      // Update all employees in Supabase
-      const { error: supabaseError } = await supabase
-        .from(TABLES.GURU)
-        .update(updateData)
-        .eq('status', 'active');
+      // Show loading state
+      setLoading(true);
 
-      if (supabaseError) {
-        console.error('❌ Supabase bulk update error:', supabaseError);
-        throw supabaseError;
+      try {
+        // Update all employees in Supabase
+        const { error: supabaseError } = await supabase
+          .from(TABLES.GURU)
+          .update(updateData)
+          .eq('status', 'active');
+
+        if (supabaseError) {
+          console.error('❌ Supabase bulk update error:', supabaseError);
+          throw new Error(`Gagal update di Supabase: ${supabaseError.message}`);
+        }
+
+        // Update local database
+        const { db } = await import('../database.js');
+        await db.guru.where('status').equals('active').modify(updateData);
+
+        console.log('✅ Bulk edit successful');
+        setNotification({
+          open: true,
+          message: `Bulk edit berhasil! ${payrollData.length} data guru telah diperbarui dan disinkronisasi.`,
+          severity: 'success'
+        });
+
+        // Reset form and reload data
+        setBulkEditMode(false);
+        setBulkEditValues({
+          gaji_pokok: '',
+          tunjangan_kinerja: '',
+          tunjangan_umum: '',
+          tunjangan_istri: '',
+          tunjangan_anak: '',
+          tunjangan_kepala_sekolah: '',
+          tunjangan_wali_kelas: '',
+          honor_bendahara: '',
+          keterangan: ''
+        });
+        await loadPayrollData();
+
+      } catch (dbError) {
+        console.error('❌ Database error:', dbError);
+        throw dbError;
       }
-
-      // Update local database
-      const { db } = await import('../database.js');
-      await db.guru.where('status').equals('active').modify(updateData);
-
-      console.log('✅ Bulk edit successful');
-      alert(`✅ Bulk edit berhasil!\n${payrollData.length} data guru telah diperbarui.`);
-
-      // Reset form and reload data
-      setBulkEditMode(false);
-      setBulkEditValues({
-        gaji_pokok: '',
-        tunjangan_kinerja: '',
-        tunjangan_umum: '',
-        tunjangan_istri: '',
-        tunjangan_anak: '',
-        tunjangan_kepala_sekolah: '',
-        tunjangan_wali_kelas: '',
-        honor_bendahara: '',
-        keterangan: ''
-      });
-      loadPayrollData();
 
     } catch (error) {
       console.error('❌ Error in bulk edit:', error);
-      alert('❌ Gagal melakukan bulk edit: ' + error.message);
+      setNotification({
+        open: true,
+        message: `Gagal melakukan bulk edit: ${error.message || 'Unknown error'}`,
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1818,11 +1929,39 @@ Keterangan\t: ${employee.keterangan || '-'}
 
       {loading && (
         <Box sx={{ mb: 3 }}>
-          <LinearProgress />
-          <Typography variant="body2" sx={{ mt: 1 }}>
-            Menghitung data penggajian...
-          </Typography>
+          <LinearProgress sx={{ mb: 2 }} />
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              🔄 Menghitung data penggajian...
+              <br />
+              <strong>Mohon tunggu sebentar</strong> - sistem sedang memproses absensi dan perhitungan gaji untuk {payrollData.length > 0 ? payrollData.length : 'semua'} guru.
+            </Typography>
+          </Alert>
         </Box>
+      )}
+
+      {/* Error Summary */}
+      {payrollData.some(emp => emp.error) && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            ⚠️ Beberapa data gagal diproses ({payrollData.filter(emp => emp.error).length} dari {payrollData.length} guru).
+            <br />
+            Data tersebut akan ditampilkan dengan nilai default. Silakan periksa koneksi database.
+          </Typography>
+        </Alert>
+      )}
+
+      {/* Success/Error Notifications */}
+      {notification.open && (
+        <Alert
+          severity={notification.severity}
+          sx={{ mb: 3 }}
+          onClose={() => setNotification({ open: false, message: '', severity: 'success' })}
+        >
+          <Typography variant="body2">
+            {notification.severity === 'success' ? '✅' : '❌'} {notification.message}
+          </Typography>
+        </Alert>
       )}
 
       {/* Summary Cards */}
@@ -1832,7 +1971,7 @@ Keterangan\t: ${employee.keterangan || '-'}
             <Card>
               <CardContent>
                 <Typography variant="h6" color="primary.main">
-                  {payrollData.length}
+                  {summaryStats.totalEmployees}
                 </Typography>
                 <Typography variant="body2">
                   Total Guru/Staf
@@ -1845,7 +1984,7 @@ Keterangan\t: ${employee.keterangan || '-'}
             <Card>
               <CardContent>
                 <Typography variant="h6" color="success.main">
-                  Rp{payrollData.reduce((sum, emp) => sum + (emp.totalSalary || 0), 0).toLocaleString()}
+                  Rp{summaryStats.totalPayroll.toLocaleString()}
                 </Typography>
                 <Typography variant="body2">
                   Total Penggajian
@@ -1858,10 +1997,7 @@ Keterangan\t: ${employee.keterangan || '-'}
             <Card>
               <CardContent>
                 <Typography variant="h6" color="info.main">
-                  Rp{payrollData.reduce((sum, emp) => {
-                    const baseSalary = emp.calculated_base_salary || emp.gaji_pokok || 0;
-                    return sum + baseSalary;
-                  }, 0).toLocaleString()}
+                  Rp{summaryStats.totalBaseSalary.toLocaleString()}
                 </Typography>
                 <Typography variant="body2">
                   Total Gaji Pokok
@@ -1877,7 +2013,7 @@ Keterangan\t: ${employee.keterangan || '-'}
             <Card>
               <CardContent>
                 <Typography variant="h6" color="warning.main">
-                  Rp{payrollData.reduce((sum, emp) => sum + (emp.deductions?.totalDeduction || 0), 0).toLocaleString()}
+                  Rp{summaryStats.totalDeductions.toLocaleString()}
                 </Typography>
                 <Typography variant="body2">
                   Total Potongan
@@ -1889,8 +2025,8 @@ Keterangan\t: ${employee.keterangan || '-'}
           <Grid item xs={12} sm={6} md={3}>
             <Card>
               <CardContent>
-                <Typography variant="h6" color="info.main">
-                  {payrollData.reduce((sum, emp) => sum + (emp.attendanceData?.tidakHadir || 0), 0)}
+                <Typography variant="h6" color="error.main">
+                  {summaryStats.totalTidakHadir}
                 </Typography>
                 <Typography variant="body2">
                   Total Tidak Hadir
@@ -1946,8 +2082,8 @@ Keterangan\t: ${employee.keterangan || '-'}
        )}
 
       {/* Payroll Table */}
-      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 2000 }}>
+      <TableContainer component={Paper} sx={{ overflowX: 'auto', maxHeight: '70vh' }}>
+        <Table sx={{ minWidth: 2000 }} stickyHeader>
           <TableHead>
             <TableRow sx={{ bgcolor: 'grey.100' }}>
               <TableCell sx={{ fontWeight: 'bold', minWidth: 50 }}>No</TableCell>
