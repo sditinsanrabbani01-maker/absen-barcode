@@ -6,6 +6,9 @@ import FlipCameraAndroidIcon from '@mui/icons-material/FlipCameraAndroid';
 import CropSquareIcon from '@mui/icons-material/CropSquare';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../database';
+import { DatabaseService, TABLES } from '../config/supabase';
+import { supabase } from '../config/supabase';
+import { useRealtime } from '../context/RealtimeContext';
 import AnimatedDialog from './AnimatedDialog';
 
 // Add mobile viewport fixes
@@ -56,6 +59,9 @@ const Scan = () => {
   const html5QrCodeRef = useRef(null);
   const navigate = useNavigate();
 
+  // Real-time context
+  const { subscribeToTable } = useRealtime();
+
   useEffect(() => {
     // Read scan mode from URL parameter
     const urlParams = new URLSearchParams(window.location.search);
@@ -79,6 +85,14 @@ const Scan = () => {
       console.error('Error getting cameras:', err);
     });
 
+    // Setup real-time subscriptions for attendance data
+    console.log('📡 Setting up real-time attendance subscriptions...');
+
+    const attendanceSubscription = subscribeToTable(TABLES.ATTENDANCE, (change) => {
+      console.log('🔄 Real-time attendance change detected in Scan:', change);
+      // Could trigger refresh of attendance data if needed
+    });
+
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
 
@@ -87,8 +101,9 @@ const Scan = () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
       stopScanning();
+      attendanceSubscription?.unsubscribe?.();
     };
-  }, [selectedCamera]);
+  }, [selectedCamera, subscribeToTable]);
 
   // Start scanning when camera is selected
   useEffect(() => {
@@ -265,13 +280,43 @@ const Scan = () => {
       // Enhanced user lookup with multiple search strategies
       let user = null;
 
-      // Strategy 1: Direct identifier match
-      const [guru, siswa] = await Promise.all([
-        db.guru.where('niy').equals(decodedText).first(),
-        db.siswa.where('nisn').equals(decodedText).first()
-      ]);
+      try {
+        // Strategy 1: Direct identifier match in Supabase (real-time data)
+        const { data: supabaseGuru, error: guruError } = await supabase
+          .from(TABLES.GURU)
+          .select('*')
+          .eq('niy', decodedText)
+          .single();
 
-      user = guru || siswa;
+        const { data: supabaseSiswa, error: siswaError } = await supabase
+          .from(TABLES.SISWA)
+          .select('*')
+          .eq('nisn', decodedText)
+          .single();
+
+        if (!guruError && supabaseGuru) {
+          user = supabaseGuru;
+          console.log('👤 User found in Supabase (Guru):', user.nama);
+        } else if (!siswaError && supabaseSiswa) {
+          user = supabaseSiswa;
+          console.log('👤 User found in Supabase (Siswa):', user.nama);
+        }
+      } catch (supabaseError) {
+        console.warn('⚠️ Supabase lookup failed, trying local database:', supabaseError);
+      }
+
+      // Strategy 2: Fallback to local database
+      if (!user) {
+        const [guru, siswa] = await Promise.all([
+          db.guru.where('niy').equals(decodedText).first(),
+          db.siswa.where('nisn').equals(decodedText).first()
+        ]);
+
+        user = guru || siswa;
+        if (user) {
+          console.log('👤 User found in local database:', user.nama);
+        }
+      }
 
       // Strategy 2: If no direct match, try fuzzy matching for damaged QR codes
       if (!user && enhancedMode) {
@@ -546,30 +591,66 @@ Terima kasih atas perhatian Anda 🙏`;
   };
 
   const checkDuplicateAttendance = async (identifier, today, currentAtt) => {
-    const todayAttendance = await db.attendance.where('identifier').equals(identifier).and(a => a.tanggal === today && a.att === currentAtt).toArray();
-    // Prevent duplicate entries for the same Att type (Datang/Pulang)
-    return todayAttendance.length > 0;
+    try {
+      // Check Supabase first (real-time data)
+      const { data: supabaseAttendance, error: supabaseError } = await supabase
+        .from(TABLES.ATTENDANCE)
+        .select('*')
+        .eq('identifier', identifier)
+        .eq('tanggal', today)
+        .eq('att', currentAtt);
+
+      if (!supabaseError && supabaseAttendance && supabaseAttendance.length > 0) {
+        console.log('🚫 Duplicate attendance found in Supabase');
+        return true;
+      }
+
+      // Fallback to local database
+      const todayAttendance = await db.attendance
+        .where('identifier').equals(identifier)
+        .and(a => a.tanggal === today && a.att === currentAtt)
+        .toArray();
+
+      return todayAttendance.length > 0;
+
+    } catch (error) {
+      console.error('Error checking duplicate attendance:', error);
+      // Fallback to local only
+      const todayAttendance = await db.attendance
+        .where('identifier').equals(identifier)
+        .and(a => a.tanggal === today && a.att === currentAtt)
+        .toArray();
+
+      return todayAttendance.length > 0;
+    }
   };
 
-  const showSuccessNotification = (nama) => {
-    // Create a temporary notification that disappears after 3 seconds
+  const showSuccessNotification = (nama, syncStatus = 'success') => {
+    // Create a temporary notification that disappears after 4 seconds
     const notification = document.createElement('div');
     notification.style.cssText = `
       position: fixed;
       top: 20px;
       right: 20px;
-      background: #4caf50;
+      background: ${syncStatus === 'success' ? '#4caf50' : '#ff9800'};
       color: white;
       padding: 16px 24px;
       border-radius: 8px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
       z-index: 10000;
       font-family: 'Roboto', sans-serif;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 500;
       animation: slideIn 0.3s ease-out;
+      max-width: 300px;
     `;
-    notification.innerHTML = `✅ ${nama} absen diterima`;
+
+    const syncIcon = syncStatus === 'success' ? '☁️' : '💾';
+    const syncText = syncStatus === 'success' ? 'Tersinkronisasi' : 'Lokal';
+    notification.innerHTML = `
+      ✅ ${nama}<br>
+      <small style="opacity: 0.9">${syncIcon} ${syncText}</small>
+    `;
 
     // Add slide-in animation
     const style = document.createElement('style');
@@ -588,14 +669,14 @@ Terima kasih atas perhatian Anda 🙏`;
 
     document.body.appendChild(notification);
 
-    // Remove after 3 seconds
+    // Remove after 4 seconds
     setTimeout(() => {
       notification.style.animation = 'slideIn 0.3s ease-in reverse';
       setTimeout(() => {
         document.body.removeChild(notification);
         document.head.removeChild(style);
       }, 300);
-    }, 3000);
+    }, 4000);
   };
 
 
@@ -637,12 +718,62 @@ Terima kasih atas perhatian Anda 🙏`;
       wa: user.wa,
       email: user.email,
       att: att,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
 
-    await db.attendance.add(newEntry);
+    try {
+      console.log('💾 Recording attendance with real-time sync...');
 
-    // Send WhatsApp message after successful recording
-    sendWhatsAppMessage(user, today, currentTime, status, keterangan);
+      // Save to Supabase first (for real-time sync)
+      const { data: supabaseResult, error: supabaseError } = await supabase
+        .from(TABLES.ATTENDANCE)
+        .insert(newEntry)
+        .select()
+        .single();
+
+      if (supabaseError) {
+        console.error('❌ Supabase attendance save error:', supabaseError);
+        throw new Error('Failed to save to Supabase: ' + supabaseError.message);
+      }
+
+      // Save to local database with Supabase ID
+      const localResult = await db.attendance.add({
+        ...newEntry,
+        id: supabaseResult?.id // Use Supabase ID for consistency
+      });
+
+      console.log('✅ Attendance recorded successfully:', {
+        supabaseId: supabaseResult?.id,
+        localId: localResult,
+        user: user.nama,
+        status: status
+      });
+
+      // Send WhatsApp message after successful recording
+      sendWhatsAppMessage(user, today, currentTime, status, keterangan);
+
+      // Show enhanced success notification with sync status
+      showSuccessNotification(`${user.nama} - ${status} (${keterangan})`, 'success');
+
+    } catch (error) {
+      console.error('❌ Error recording attendance:', error);
+
+      // Fallback to local only if Supabase fails
+      try {
+        console.log('🔄 Fallback: Saving to local database only...');
+        await db.attendance.add(newEntry);
+        console.log('✅ Attendance saved to local database as fallback');
+
+        // Still send WhatsApp message
+        sendWhatsAppMessage(user, today, currentTime, status, keterangan);
+        showSuccessNotification(`${user.nama} - ${status} (Local)`, 'local');
+
+      } catch (localError) {
+        console.error('❌ Local database fallback also failed:', localError);
+        alert('❌ Gagal menyimpan absensi: ' + error.message);
+      }
+    }
 
     // Don't navigate away - stay in continuous scan mode
   };
@@ -876,6 +1007,37 @@ Terima kasih atas perhatian Anda 🙏`;
             gap: 2,
             pointerEvents: 'auto'
           }}>
+
+          {/* Connection Status */}
+          <IconButton
+            onClick={async () => {
+              try {
+                const { data, error } = await supabase.from(TABLES.ATTENDANCE).select('count').limit(1);
+                if (error) {
+                  alert('❌ Koneksi Supabase gagal!\n\nError: ' + error.message);
+                } else {
+                  alert('✅ Koneksi Supabase berhasil!\n\nReal-time sync aktif untuk absensi.');
+                }
+              } catch (error) {
+                alert('❌ Error testing connection: ' + error.message);
+              }
+            }}
+            sx={{
+              bgcolor: 'rgba(0,0,0,0.7)',
+              color: 'white',
+              border: '2px solid rgba(76, 175, 80, 0.8)',
+              backdropFilter: 'blur(10px)',
+              '&:hover': {
+                transform: 'scale(1.1)',
+                bgcolor: 'rgba(0,0,0,0.9)'
+              },
+              transition: 'all 0.2s ease-in-out'
+            }}
+            size="large"
+            title="Test Supabase Connection"
+          >
+            ☁️
+          </IconButton>
             {/* Enhanced Mode Toggle */}
             <IconButton
               onClick={toggleEnhancedMode}
@@ -1015,6 +1177,9 @@ Terima kasih atas perhatian Anda 🙏`;
               <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
                 <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold' }}>
                   ✅ {scanCount} scan berhasil
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'success.main' }}>
+                  ☁️ Real-time Sync
                 </Typography>
                 {enhancedMode && (
                   <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'success.main' }}>
