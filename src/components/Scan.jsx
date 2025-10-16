@@ -1409,7 +1409,14 @@ Terima kasih atas perhatian Anda 🙏`;
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>
           <Button
-            onClick={() => setDuplicateDialog({ open: false, nama: '', status: '' })}
+            onClick={() => {
+              // Resume scanner when dialog is closed
+              setDuplicateDialog({ open: false, nama: '', status: '' });
+              if (selectedCamera) {
+                startScanning(selectedCamera);
+                console.log('▶️ Scanner resumed after duplicate dialog');
+              }
+            }}
             variant="contained"
             size="large"
             sx={{
