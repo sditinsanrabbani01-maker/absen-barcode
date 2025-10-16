@@ -29,6 +29,12 @@ const Penggajian = ({ mode }) => {
   // Get current user and role capabilities
   const currentUser = AuthService.getCurrentUser();
   const roleCapabilities = AuthService.getRoleCapabilities(currentUser?.role);
+
+  // Function to round salary to nearest thousand
+  const roundToThousand = (amount) => {
+    if (!amount || amount === 0) return 0;
+    return Math.round(amount / 1000) * 1000;
+  };
   // Function to get previous month (for payroll processing)
   const getPreviousMonth = () => {
     const now = new Date();
@@ -1036,6 +1042,7 @@ Total Potongan\t: Rp${(employee.deductions?.totalDeduction || 0).toLocaleString(
 
 Jumlah Penghasilan\t: Rp${grossSalary.toLocaleString()}
 Jumlah Dibayarkan\t: Rp${(employee.totalSalary || 0).toLocaleString()}
+Total Pembulatan\t: Rp${roundToThousand(employee.totalSalary || 0).toLocaleString()}
 
 Keterangan\t: ${employee.keterangan || '-'}
 
@@ -1430,6 +1437,7 @@ Keterangan\t: ${employee.keterangan || '-'}
         `Rp${(employee.deductions?.totalDeduction || 0).toLocaleString()}`,
         `Rp${grossSalary.toLocaleString()}`,
         `Rp${(employee.totalSalary || 0).toLocaleString()}`,
+        `Rp${roundToThousand(employee.totalSalary || 0).toLocaleString()}`,
         employee.keterangan || ''
       ];
     });
@@ -1440,7 +1448,7 @@ Keterangan\t: ${employee.keterangan || '-'}
         'Gaji Pokok', 'Tunj. Kinerja', 'Tunj. Umum', 'Tunj. Istri', 'Tunj. Anak',
         'Tunj. Kepala Sekolah', 'Tunj. Wali Kelas', 'Honor Bendahara',
         'Tahap 1', 'Tahap 2', 'Tidak Hadir', 'Tanpa Keterangan', 'Pot. Kinerja', 'Jumlah',
-        'Jumlah yang dibayarkan', 'Keterangan'
+        'Jumlah yang dibayarkan', 'Total Pembulatan', 'Keterangan'
       ]],
       body: tableData,
       startY: yPosition,
@@ -1468,7 +1476,8 @@ Keterangan\t: ${employee.keterangan || '-'}
         18: { cellWidth: 18 },
         19: { cellWidth: 18 },
         20: { cellWidth: 20 },
-        21: { cellWidth: 25 }
+        21: { cellWidth: 20 },
+        22: { cellWidth: 25 }
       }
     });
 
@@ -1961,6 +1970,7 @@ Keterangan\t: ${employee.keterangan || '-'}
               <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>Pot. Kinerja</TableCell>
               <TableCell sx={{ fontWeight: 'bold', minWidth: 120 }}>Jumlah</TableCell>
               <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>Jumlah yang dibayarkan</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>Total Pembulatan</TableCell>
               <TableCell sx={{ fontWeight: 'bold', minWidth: 120 }}>Keterangan</TableCell>
               <TableCell sx={{ fontWeight: 'bold', minWidth: 80 }}>Aksi</TableCell>
             </TableRow>
@@ -2246,6 +2256,9 @@ Keterangan\t: ${employee.keterangan || '-'}
                   </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 'bold', color: 'success.main' }}>
                     Rp{(employee.totalSalary || 0).toLocaleString()}
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.50' }}>
+                    Rp{roundToThousand(employee.totalSalary || 0).toLocaleString()}
                   </TableCell>
                   <TableCell>
                     {bulkEditMode ? (
