@@ -160,41 +160,111 @@ function App() {
 
   // Define menu items based on user role
   const getMenuItems = (userRole) => {
-    const allMenuItems = [
-      { text: 'Dashboard', icon: <DashboardIcon />, path: '/', feature: 'dashboard' },
-      { text: 'Database', icon: <StorageIcon />, path: '/database', feature: 'database' },
-      { text: 'Absensi', icon: <EventNoteIcon />, path: '/absensi', feature: 'absensi' },
-      { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen', feature: 'rekap-absen' },
-      { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap', feature: 'rekap-lengkap' },
-      { text: 'BintangKu', icon: <StarIcon />, path: '/bintangku', feature: 'bintangku' },
-      { text: 'Data Guru', icon: <SchoolIcon />, path: '/data-guru', feature: 'data-guru' },
-      { text: 'Data Siswa', icon: <PersonIcon />, path: '/data-siswa', feature: 'data-siswa' },
-      { text: 'Data Mutasi', icon: <EventNoteIcon />, path: '/data-mutasi', feature: 'data-mutasi' },
-      { text: 'Penggajian', icon: <AccountBalanceIcon />, path: '/penggajian', feature: 'penggajian' },
-    ];
+    const roleMenus = {
+      'Admin': [
+        { text: 'Dashboard', icon: <DashboardIcon />, path: '/', feature: 'dashboard', section: 'main' },
+        { text: 'Database', icon: <StorageIcon />, path: '/database', feature: 'database', section: 'admin' },
+        { text: 'Absensi', icon: <EventNoteIcon />, path: '/absensi', feature: 'absensi', section: 'operational' },
+        { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen', feature: 'rekap-absen', section: 'reports' },
+        { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap', feature: 'rekap-lengkap', section: 'reports' },
+        { text: 'BintangKu', icon: <StarIcon />, path: '/bintangku', feature: 'bintangku', section: 'tools' },
+        { text: 'Data Guru', icon: <SchoolIcon />, path: '/data-guru', feature: 'data-guru', section: 'data' },
+        { text: 'Data Siswa', icon: <PersonIcon />, path: '/data-siswa', feature: 'data-siswa', section: 'data' },
+        { text: 'Data Mutasi', icon: <EventNoteIcon />, path: '/data-mutasi', feature: 'data-mutasi', section: 'data' },
+        { text: 'Penggajian', icon: <AccountBalanceIcon />, path: '/penggajian', feature: 'penggajian', section: 'financial' },
+      ],
+      'Bendahara': [
+        { text: 'Dashboard', icon: <DashboardIcon />, path: '/', feature: 'dashboard', section: 'main' },
+        { text: 'Penggajian', icon: <AccountBalanceIcon />, path: '/penggajian', feature: 'penggajian', section: 'financial' },
+        { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen', feature: 'rekap-absen', section: 'reports' },
+        { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap', feature: 'rekap-lengkap', section: 'reports' },
+        { text: 'Data Guru', icon: <SchoolIcon />, path: '/data-guru', feature: 'data-guru', section: 'data' },
+      ],
+      'Operator': [
+        { text: 'Dashboard', icon: <DashboardIcon />, path: '/', feature: 'dashboard', section: 'main' },
+        { text: 'Absensi', icon: <EventNoteIcon />, path: '/absensi', feature: 'absensi', section: 'operational' },
+        { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen', feature: 'rekap-absen', section: 'reports' },
+        { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap', feature: 'rekap-lengkap', section: 'reports' },
+        { text: 'Data Guru', icon: <SchoolIcon />, path: '/data-guru', feature: 'data-guru', section: 'data' },
+        { text: 'Data Siswa', icon: <PersonIcon />, path: '/data-siswa', feature: 'data-siswa', section: 'data' },
+        { text: 'Data Mutasi', icon: <EventNoteIcon />, path: '/data-mutasi', feature: 'data-mutasi', section: 'data' },
+      ],
+      'Viewer': [
+        { text: 'Dashboard', icon: <DashboardIcon />, path: '/', feature: 'dashboard', section: 'main' },
+        { text: 'Rekap Absen', icon: <PictureAsPdfIcon />, path: '/rekap-absen', feature: 'rekap-absen', section: 'reports' },
+        { text: 'Rekap Lengkap', icon: <PictureAsPdfIcon />, path: '/rekap-lengkap', feature: 'rekap-lengkap', section: 'reports' },
+      ]
+    };
 
-    return allMenuItems.filter(item => AuthService.canAccess(userRole, item.feature));
+    const userMenus = roleMenus[userRole] || roleMenus['Viewer'];
+    return userMenus.filter(item => AuthService.canAccess(userRole, item.feature));
   };
 
   const menuItems = getMenuItems(currentUser?.role);
+  const roleCapabilities = AuthService.getRoleCapabilities(currentUser?.role);
+
+  // Group menu items by section for better organization
+  const groupedMenuItems = menuItems.reduce((acc, item) => {
+    if (!acc[item.section]) acc[item.section] = [];
+    acc[item.section].push(item);
+    return acc;
+  }, {});
 
   const drawer = (
     <div>
       <Toolbar>
-        <Typography variant="h6" noWrap component="div">
-          INGAT WAKTU
-        </Typography>
+        <Box sx={{ width: '100%' }}>
+          <Typography variant="h6" noWrap component="div" sx={{ mb: 1 }}>
+            INGAT WAKTU
+          </Typography>
+          <Box sx={{
+            bgcolor: `${roleCapabilities.color}.main`,
+            color: 'white',
+            px: 1,
+            py: 0.5,
+            borderRadius: 1,
+            fontSize: '0.75rem',
+            textAlign: 'center'
+          }}>
+            {roleCapabilities.name}
+          </Box>
+        </Box>
       </Toolbar>
+
       <List>
-        {menuItems.map((item) => (
-          <ListItem key={item.text} disablePadding>
-            <ListItemButton component={Link} to={item.path}>
-              <ListItemIcon>
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
-          </ListItem>
+        {Object.entries(groupedMenuItems).map(([section, items]) => (
+          <div key={section}>
+            {/* Section Header */}
+            <Box sx={{
+              px: 2,
+              py: 1,
+              bgcolor: 'grey.100',
+              borderBottom: '1px solid',
+              borderColor: 'grey.200'
+            }}>
+              <Typography variant="caption" sx={{ fontWeight: 'bold', textTransform: 'uppercase' }}>
+                {section === 'main' ? 'Utama' :
+                 section === 'operational' ? 'Operasional' :
+                 section === 'financial' ? 'Keuangan' :
+                 section === 'reports' ? 'Laporan' :
+                 section === 'data' ? 'Data Master' :
+                 section === 'admin' ? 'Administrasi' :
+                 section === 'tools' ? 'Tools' : section}
+              </Typography>
+            </Box>
+
+            {/* Section Items */}
+            {items.map((item) => (
+              <ListItem key={item.text} disablePadding>
+                <ListItemButton component={Link} to={item.path}>
+                  <ListItemIcon>
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText primary={item.text} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </div>
         ))}
       </List>
     </div>
@@ -252,7 +322,7 @@ function App() {
                       sx={{
                         width: 32,
                         height: 32,
-                        bgcolor: 'primary.dark'
+                        bgcolor: `${roleCapabilities.color}.main`
                       }}
                     >
                       {currentUser?.nama?.charAt(0) || 'U'}
@@ -262,7 +332,7 @@ function App() {
                         {currentUser?.nama}
                       </Typography>
                       <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                        {currentUser?.role}
+                        {roleCapabilities.name}
                       </Typography>
                     </Box>
                   </Button>
@@ -272,13 +342,64 @@ function App() {
                     onClose={handleUserMenuClose}
                     onClick={handleUserMenuClose}
                   >
-                    <Box sx={{ px: 2, py: 1, minWidth: 150 }}>
+                    <Box sx={{ px: 2, py: 1, minWidth: 200 }}>
                       <Typography variant="body2" fontWeight="bold">
                         {currentUser?.nama}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {currentUser?.role}
+                      <Box sx={{
+                        bgcolor: `${roleCapabilities.color}.main`,
+                        color: 'white',
+                        px: 1,
+                        py: 0.5,
+                        borderRadius: 1,
+                        fontSize: '0.75rem',
+                        textAlign: 'center',
+                        my: 1
+                      }}>
+                        {roleCapabilities.name}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        {roleCapabilities.description}
                       </Typography>
+
+                      {/* Role Capabilities */}
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="caption" fontWeight="bold" sx={{ mb: 1, display: 'block' }}>
+                          Capabilities:
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                          {roleCapabilities.canEdit && (
+                            <Typography variant="caption" sx={{ color: 'success.main' }}>
+                              ✓ Can Edit Data
+                            </Typography>
+                          )}
+                          {roleCapabilities.canDelete && (
+                            <Typography variant="caption" sx={{ color: 'success.main' }}>
+                              ✓ Can Delete Data
+                            </Typography>
+                          )}
+                          {roleCapabilities.canExport && (
+                            <Typography variant="caption" sx={{ color: 'success.main' }}>
+                              ✓ Can Export Data
+                            </Typography>
+                          )}
+                          {roleCapabilities.canImport && (
+                            <Typography variant="caption" sx={{ color: 'success.main' }}>
+                              ✓ Can Import Data
+                            </Typography>
+                          )}
+                          {roleCapabilities.canBulkEdit && (
+                            <Typography variant="caption" sx={{ color: 'success.main' }}>
+                              ✓ Can Bulk Edit
+                            </Typography>
+                          )}
+                          {roleCapabilities.canManageUsers && (
+                            <Typography variant="caption" sx={{ color: 'success.main' }}>
+                              ✓ Can Manage Users
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
                     </Box>
                     <MenuItem onClick={handleLogout}>
                       <LogoutIcon sx={{ mr: 1 }} />

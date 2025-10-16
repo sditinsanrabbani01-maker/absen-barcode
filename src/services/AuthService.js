@@ -197,9 +197,10 @@ export class AuthService {
   // Role-based access control
   static hasPermission(userRole, requiredRole) {
     const roleHierarchy = {
-      'Admin': 3,
+      'Admin': 4,
+      'Bendahara': 3,
       'Operator': 2,
-      'Bendahara': 1
+      'Viewer': 1
     };
 
     return roleHierarchy[userRole] >= roleHierarchy[requiredRole];
@@ -208,20 +209,97 @@ export class AuthService {
   static canAccess(userRole, feature) {
     const permissions = {
       'Admin': [
+        // Full access to all features
         'dashboard', 'database', 'absensi', 'rekap-absen', 'rekap-lengkap',
         'bintangku', 'data-guru', 'data-siswa', 'data-mutasi', 'penggajian',
-        'user-management', 'settings'
+        'user-management', 'settings', 'system-config', 'data-export',
+        'data-import', 'bulk-operations', 'audit-log'
+      ],
+      'Bendahara': [
+        // Financial and payroll management
+        'dashboard', 'penggajian', 'rekap-absen', 'rekap-lengkap',
+        'data-guru', 'data-export', 'settings'
       ],
       'Operator': [
+        // Operational tasks only
         'dashboard', 'absensi', 'rekap-absen', 'rekap-lengkap',
         'data-guru', 'data-siswa', 'data-mutasi'
       ],
-      'Bendahara': [
-        'dashboard', 'penggajian', 'rekap-absen', 'rekap-lengkap'
+      'Viewer': [
+        // Read-only access
+        'dashboard', 'rekap-absen', 'rekap-lengkap'
       ]
     };
 
     return permissions[userRole]?.includes(feature) || false;
+  }
+
+  // Get role-specific capabilities
+  static getRoleCapabilities(userRole) {
+    const capabilities = {
+      'Admin': {
+        name: 'Administrator',
+        description: 'Akses penuh ke semua fitur sistem',
+        color: 'error',
+        canEdit: true,
+        canDelete: true,
+        canExport: true,
+        canImport: true,
+        canManageUsers: true,
+        canAccessSettings: true,
+        canBulkEdit: true
+      },
+      'Bendahara': {
+        name: 'Bendahara',
+        description: 'Pengelolaan keuangan dan penggajian',
+        color: 'warning',
+        canEdit: true,
+        canDelete: false,
+        canExport: true,
+        canImport: false,
+        canManageUsers: false,
+        canAccessSettings: true,
+        canBulkEdit: true
+      },
+      'Operator': {
+        name: 'Operator',
+        description: 'Operasional harian dan input data',
+        color: 'info',
+        canEdit: true,
+        canDelete: false,
+        canExport: false,
+        canImport: false,
+        canManageUsers: false,
+        canAccessSettings: false,
+        canBulkEdit: false
+      },
+      'Viewer': {
+        name: 'Viewer',
+        description: 'Akses baca saja untuk laporan',
+        color: 'success',
+        canEdit: false,
+        canDelete: false,
+        canExport: false,
+        canImport: false,
+        canManageUsers: false,
+        canAccessSettings: false,
+        canBulkEdit: false
+      }
+    };
+
+    return capabilities[userRole] || capabilities['Viewer'];
+  }
+
+  // Check if user can perform specific action
+  static canPerformAction(userRole, action) {
+    const actions = {
+      'Admin': ['create', 'read', 'update', 'delete', 'export', 'import', 'bulk-edit', 'manage-users'],
+      'Bendahara': ['create', 'read', 'update', 'export', 'bulk-edit'],
+      'Operator': ['create', 'read', 'update'],
+      'Viewer': ['read']
+    };
+
+    return actions[userRole]?.includes(action) || false;
   }
 }
 

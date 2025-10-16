@@ -13,6 +13,7 @@ import { db } from '../database';
 import { DatabaseService, TABLES } from '../config/supabase';
 import { supabase } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
+import { AuthService } from '../services/AuthService';
 import SyncStatus from './SyncStatus';
 
 const Penggajian = ({ mode }) => {
@@ -24,6 +25,10 @@ const Penggajian = ({ mode }) => {
     tidakHadir: 25000,
     tanpaKeterangan: 50000
   });
+
+  // Get current user and role capabilities
+  const currentUser = AuthService.getCurrentUser();
+  const roleCapabilities = AuthService.getRoleCapabilities(currentUser?.role);
   // Function to get previous month (for payroll processing)
   const getPreviousMonth = () => {
     const now = new Date();
@@ -1484,6 +1489,34 @@ Keterangan\t: ${employee.keterangan || '-'}
         </Box>
       </Box>
 
+      {/* Role Information Alert */}
+      <Alert severity="info" sx={{ mb: 2 }} icon={false}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <Box>
+            <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <strong>Role Anda:</strong>
+              <Box sx={{
+                bgcolor: `${roleCapabilities.color}.main`,
+                color: 'white',
+                px: 1,
+                py: 0.5,
+                borderRadius: 1,
+                fontSize: '0.75rem'
+              }}>
+                {roleCapabilities.name}
+              </Box>
+              - {roleCapabilities.description}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2, fontSize: '0.8rem' }}>
+            {roleCapabilities.canEdit && <Typography sx={{ color: 'success.main' }}>✓ Edit</Typography>}
+            {roleCapabilities.canBulkEdit && <Typography sx={{ color: 'success.main' }}>✓ Bulk Edit</Typography>}
+            {roleCapabilities.canExport && <Typography sx={{ color: 'success.main' }}>✓ Export</Typography>}
+            {roleCapabilities.canImport && <Typography sx={{ color: 'success.main' }}>✓ Import</Typography>}
+          </Box>
+        </Box>
+      </Alert>
+
       <Alert severity="info" sx={{ mb: 2 }}>
         <Typography variant="body2">
           <strong>📅 Periode Penggajian:</strong> Sistem otomatis menampilkan data bulan lalu untuk pemrosesan penggajian
@@ -1547,8 +1580,16 @@ Keterangan\t: ${employee.keterangan || '-'}
               <Button
                 variant="outlined"
                 startIcon={<Settings />}
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => {
+                  if (roleCapabilities.canAccessSettings) {
+                    setSettingsOpen(true);
+                  } else {
+                    alert('❌ Akses Ditolak: Role Anda tidak memiliki akses ke pengaturan');
+                  }
+                }}
+                disabled={!roleCapabilities.canAccessSettings}
                 fullWidth
+                title={!roleCapabilities.canAccessSettings ? `Role ${roleCapabilities.name} tidak memiliki akses ke pengaturan` : ''}
               >
                 Pengaturan
               </Button>
@@ -1559,8 +1600,16 @@ Keterangan\t: ${employee.keterangan || '-'}
               <Button
                 variant="outlined"
                 startIcon={<UploadFile />}
-                onClick={generateImportTemplate}
+                onClick={() => {
+                  if (roleCapabilities.canImport) {
+                    generateImportTemplate();
+                  } else {
+                    alert('❌ Akses Ditolak: Role Anda tidak memiliki izin untuk import data');
+                  }
+                }}
+                disabled={!roleCapabilities.canImport}
                 fullWidth
+                title={!roleCapabilities.canImport ? `Role ${roleCapabilities.name} tidak dapat import data` : ''}
               >
                 Template Import
               </Button>
@@ -1571,14 +1620,23 @@ Keterangan\t: ${employee.keterangan || '-'}
                 variant="outlined"
                 component="label"
                 startIcon={<UploadFile />}
+                disabled={!roleCapabilities.canImport}
                 fullWidth
+                title={!roleCapabilities.canImport ? `Role ${roleCapabilities.name} tidak dapat import data` : ''}
               >
                 Import Excel
                 <input
                   type="file"
                   accept=".xlsx,.xls"
                   hidden
-                  onChange={handleExcelImport}
+                  onChange={(e) => {
+                    if (roleCapabilities.canImport) {
+                      handleExcelImport(e);
+                    } else {
+                      alert('❌ Akses Ditolak: Role Anda tidak memiliki izin untuk import data');
+                      e.target.value = ''; // Clear the input
+                    }
+                  }}
                 />
               </Button>
             </Grid>
@@ -1587,9 +1645,16 @@ Keterangan\t: ${employee.keterangan || '-'}
               <Button
                 variant="contained"
                 startIcon={<PictureAsPdf />}
-                onClick={generatePDFReport}
-                disabled={payrollData.length === 0}
+                onClick={() => {
+                  if (roleCapabilities.canExport) {
+                    generatePDFReport();
+                  } else {
+                    alert('❌ Akses Ditolak: Role Anda tidak memiliki izin untuk export PDF');
+                  }
+                }}
+                disabled={payrollData.length === 0 || !roleCapabilities.canExport}
                 fullWidth
+                title={!roleCapabilities.canExport ? `Role ${roleCapabilities.name} tidak dapat export PDF` : ''}
               >
                 Export PDF
               </Button>
@@ -1639,11 +1704,17 @@ Keterangan\t: ${employee.keterangan || '-'}
                 color={bulkEditMode ? "primary" : "default"}
                 startIcon={<Edit />}
                 onClick={() => {
-                  // Simple bulk edit mode - don't pre-populate with calculated values
-                  // Users can see current values in the table and edit bulk fields as needed
-                  setBulkEditMode(!bulkEditMode);
+                  if (roleCapabilities.canBulkEdit) {
+                    // Simple bulk edit mode - don't pre-populate with calculated values
+                    // Users can see current values in the table and edit bulk fields as needed
+                    setBulkEditMode(!bulkEditMode);
+                  } else {
+                    alert('❌ Akses Ditolak: Role Anda tidak memiliki izin untuk bulk edit');
+                  }
                 }}
+                disabled={!roleCapabilities.canBulkEdit}
                 fullWidth
+                title={!roleCapabilities.canBulkEdit ? `Role ${roleCapabilities.name} tidak dapat melakukan bulk edit` : ''}
               >
                 {bulkEditMode ? "Batal Edit Semua" : "Edit Semua"}
               </Button>
@@ -1654,9 +1725,16 @@ Keterangan\t: ${employee.keterangan || '-'}
                 variant="contained"
                 color="success"
                 startIcon={<WhatsApp />}
-                onClick={sendBulkWhatsApp}
-                disabled={payrollData.length === 0}
+                onClick={() => {
+                  if (roleCapabilities.canBulkEdit) {
+                    sendBulkWhatsApp();
+                  } else {
+                    alert('❌ Akses Ditolak: Role Anda tidak memiliki izin untuk kirim bulk WhatsApp');
+                  }
+                }}
+                disabled={payrollData.length === 0 || !roleCapabilities.canBulkEdit}
                 fullWidth
+                title={!roleCapabilities.canBulkEdit ? `Role ${roleCapabilities.name} tidak dapat kirim bulk WhatsApp` : ''}
               >
                 Kirim Bulk WA
               </Button>
@@ -2213,15 +2291,17 @@ Keterangan\t: ${employee.keterangan || '-'}
                             </>
                           ) : (
                             <>
-                              <Tooltip title="Edit Gaji & Tunjangan">
-                                <IconButton
-                                  color="primary"
-                                  size="small"
-                                  onClick={() => startEditing(employee)}
-                                >
-                                  <Edit />
-                                </IconButton>
-                              </Tooltip>
+                              {roleCapabilities.canEdit && (
+                                <Tooltip title="Edit Gaji & Tunjangan">
+                                  <IconButton
+                                    color="primary"
+                                    size="small"
+                                    onClick={() => startEditing(employee)}
+                                  >
+                                    <Edit />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
                               <Tooltip title="Kirim Amprah Gaji via WhatsApp">
                                 <IconButton
                                   color="success"
