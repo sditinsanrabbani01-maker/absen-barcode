@@ -56,11 +56,68 @@ const Scan = () => {
   const [scanAttempts, setScanAttempts] = useState(0);
   const [lastScanTime, setLastScanTime] = useState(0);
   const [enhancedMode, setEnhancedMode] = useState(true); // Enable enhanced scanning by default
+  const [beepEnabled, setBeepEnabled] = useState(true); // Enable beep sound by default
   const html5QrCodeRef = useRef(null);
   const navigate = useNavigate();
 
   // Real-time context
   const { subscribeToTable } = useRealtime();
+
+  // Audio context for beep sound
+  const audioContextRef = useRef(null);
+
+  // Initialize audio context
+  const initAudioContext = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioContextRef.current;
+  };
+
+  // Play scanner beep sound
+  const playBeepSound = () => {
+    if (!beepEnabled) return;
+
+    try {
+      const audioContext = initAudioContext();
+
+      // Resume audio context if suspended (required by some browsers)
+      if (audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+
+      // Create oscillator for beep sound
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      // Configure beep sound (high-pitched, short duration)
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800Hz beep
+
+      // Configure volume envelope
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime); // Start volume
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1); // Fade out
+
+      // Connect nodes
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      // Play beep
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.1); // 100ms beep
+
+    } catch (error) {
+      console.warn('Could not play beep sound:', error);
+      // Fallback: try to use system beep if available
+      try {
+        if (navigator.vibrate) {
+          navigator.vibrate(100); // 100ms vibration on mobile
+        }
+      } catch (vibrationError) {
+        console.warn('Could not vibrate:', vibrationError);
+      }
+    }
+  };
 
   useEffect(() => {
     // Read scan mode from URL parameter
@@ -160,6 +217,9 @@ const Scan = () => {
 
         // Reset retry count on successful scan
         setRetryCount(0);
+
+        // Play success beep sound
+        playBeepSound();
 
         // Process the scan result
         await onScanSuccess(decodedText);
@@ -1038,6 +1098,26 @@ Terima kasih atas perhatian Anda 🙏`;
           >
             ☁️
           </IconButton>
+
+          {/* Beep Sound Toggle */}
+          <IconButton
+            onClick={() => setBeepEnabled(!beepEnabled)}
+            sx={{
+              bgcolor: beepEnabled ? 'warning.main' : 'rgba(0,0,0,0.7)',
+              color: 'white',
+              border: '2px solid rgba(255,255,255,0.3)',
+              backdropFilter: 'blur(10px)',
+              '&:hover': {
+                transform: 'scale(1.1)',
+                bgcolor: beepEnabled ? 'warning.dark' : 'rgba(0,0,0,0.9)'
+              },
+              transition: 'all 0.2s ease-in-out'
+            }}
+            size="large"
+            title={beepEnabled ? 'Nonaktifkan Suara Beep' : 'Aktifkan Suara Beep'}
+          >
+            {beepEnabled ? '🔊' : '🔇'}
+          </IconButton>
             {/* Enhanced Mode Toggle */}
             <IconButton
               onClick={toggleEnhancedMode}
@@ -1181,6 +1261,11 @@ Terima kasih atas perhatian Anda 🙏`;
                 <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'success.main' }}>
                   ☁️ Real-time Sync
                 </Typography>
+                {beepEnabled && (
+                  <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'warning.main' }}>
+                    🔊 Beep Sound Aktif
+                  </Typography>
+                )}
                 {enhancedMode && (
                   <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'success.main' }}>
                     🎯 Mode Sensitif Aktif
