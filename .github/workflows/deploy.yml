@@ -1,0 +1,95 @@
+# ============================================================================
+# AUTO-DEPLOYMENT: Supabase Real-time Attendance System
+# ============================================================================
+name: 🚀 Auto-Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch: # Allow manual trigger
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to Vercel
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  # ============================================================================
+  # QUALITY CHECKS: Ensure code quality before deployment
+  # ============================================================================
+  quality-checks:
+    name: 🔍 Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🔍 Run ESLint
+        run: npm run lint
+
+      - name: 🏗️ Build application
+        run: npm run build
+
+  # ============================================================================
+  # DEPLOYMENT: Deploy to Vercel production
+  # ============================================================================
+  deploy:
+    name: 🚀 Deploy to Vercel
+    runs-on: ubuntu-latest
+    needs: quality-checks
+    environment: production
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build for production
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🚀 Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        id: vercel-deploy
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./
+          vercel-args: '--prod'
+          github-comment: true
+
+      - name: 🎯 Get deployment URL
+        id: vercel-url
+        run: |
+          echo "url=$(echo '${{ steps.vercel-deploy.outputs.preview-url }}' | sed 's/https:\/\/.*\.vercel\.app/https:\/\/absen-barcode.vercel.app/')" >> $GITHUB_OUTPUT
+
+      - name: 📢 Notify deployment success
+        if: success()
+        run: |
+          echo "🎉 Deployment successful!"
+          echo "🌐 Live URL: ${{ steps.vercel-url.outputs.url }}"
+          echo "📅 Deployed at: $(date)"
+          echo "🔄 Real-time sync enabled"
+          echo "📱 QR scanning enhanced"
+          echo "🗑️ Clean database (no default data)"

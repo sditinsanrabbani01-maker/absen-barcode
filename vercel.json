@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/((?!api|_next/static|_next/image|assets|favicon.ico|vite.svg).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
