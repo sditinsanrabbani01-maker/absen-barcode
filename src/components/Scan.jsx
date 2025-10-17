@@ -47,6 +47,10 @@ const Scan = () => {
   const [mirrorMode, setMirrorMode] = useState(true);
   const [scannerSize, setScannerSize] = useState(3);
   const [beepEnabled, setBeepEnabled] = useState(true);
+  const [enhancedMode, setEnhancedMode] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const [maxRetries] = useState(3);
+  const [lastScanTime, setLastScanTime] = useState(0);
 
   // Refs
   const html5QrCodeRef = useRef(null);
@@ -169,6 +173,15 @@ const Scan = () => {
     await stopScanning();
     if (window.attendanceSubscription) {
       window.attendanceSubscription.unsubscribe?.();
+    }
+  };
+
+  // Toggle enhanced scanning mode
+  const toggleEnhancedMode = async () => {
+    setEnhancedMode(!enhancedMode);
+    if (isScanning) {
+      await stopScanning();
+      await startScanning(selectedCamera);
     }
   };
 
