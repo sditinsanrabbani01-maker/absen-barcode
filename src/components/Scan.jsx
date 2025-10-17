@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Typography, Button, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Alert } from '@mui/material';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
-  ArrowBack as ArrowBackIcon, FlipCameraAndroid, QrCodeScanner, VolumeUp, VolumeOff,
+  ArrowBack as ArrowBackIcon, FlipCameraAndroid as FlipCameraAndroidIcon, QrCodeScanner, VolumeUp, VolumeOff,
   Cloud, Settings, Refresh, Error as ErrorIcon, CheckCircle
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
