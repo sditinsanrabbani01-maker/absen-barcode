@@ -40,7 +40,8 @@ const Penggajian = ({ mode }) => {
 
   // Generate professional salary slip
   const generateSalarySlip = (employee) => {
-    const currentDate = new Date();
+    const currentDate = DateTimeUtils.getLocalDate();
+    const currentTime = DateTimeUtils.getLocalTime();
     const monthName = months.find(m => m.value === selectedMonth)?.label;
 
     const grossSalary = ((employee.calculated_base_salary || employee.gaji_pokok || 0)) +
@@ -93,11 +94,7 @@ ${'-'.repeat(50)}
 
 KETERANGAN : ${employee.keterangan || '-'}
 
-Malili, ${currentDate.toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    })}
+Malili, ${DateTimeUtils.formatLocalDate(currentDate)}
 
 Kepala SDIT Insan Rabbani
 
@@ -114,7 +111,7 @@ NIY: ${employee.niy || employee.nisn || '-'}
   const generateSalarySlipPDF = (employee) => {
     const doc = new jsPDF();
     const monthName = months.find(m => m.value === selectedMonth)?.label;
-    const currentDate = new Date();
+    const currentDate = DateTimeUtils.getLocalDate();
 
     // Header
     doc.setFontSize(16);
@@ -214,7 +211,7 @@ NIY: ${employee.niy || employee.nisn || '-'}
     yPosition += 15;
 
     // Footer
-    doc.text(`Malili, ${currentDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`, 20, yPosition);
+    doc.text(`Malili, ${DateTimeUtils.formatLocalDate(currentDate)}`, 20, yPosition);
     yPosition += 10;
     doc.text('Kepala SDIT Insan Rabbani', 20, yPosition);
     yPosition += 20;

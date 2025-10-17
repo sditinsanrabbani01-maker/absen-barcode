@@ -552,6 +552,13 @@ const Scan = () => {
 
   // Send WhatsApp message using Whacenter API
   const sendWhatsAppMessage = async (user, today, currentTime, status, keterangan) => {
+    // Ensure we're using local time for WhatsApp message
+    const localTime = DateTimeUtils.getLocalTime();
+    console.log('📱 Sending WhatsApp with local time:', {
+      originalTime: currentTime,
+      localTime: localTime,
+      user: user.nama
+    });
     const deviceId = '9b33e3a9-e9ff-4f8b-a62a-90b5eee3f946';
     let number = user.wa;
 
@@ -567,11 +574,13 @@ const Scan = () => {
       number = number.substring(1);
     }
 
+    // Use local time for WhatsApp Web fallback
+    const localTimeForWeb = DateTimeUtils.getLocalTime();
     const message = `🌟 Assalamu'alaikum ${user.nama} 🌟
 
 ✅ Anda telah berhasil *ABSEN*
 📅 Tanggal : ${today}
-🕒 Pukul : ${currentTime}
+🕒 Pukul : ${localTimeForWeb} WITA
 📌 Status : ${status}
 📝 Keterangan : ${keterangan}
 
@@ -626,11 +635,13 @@ Terima kasih atas perhatian Anda 🙏`;
       number = number.substring(1);
     }
 
+    // Use local time for WhatsApp message
+    const localTime = DateTimeUtils.getLocalTime();
     const message = `🌟 Assalamu'alaikum ${user.nama} 🌟
 
 ✅ Anda telah berhasil *ABSEN*
 📅 Tanggal : ${today}
-🕒 Pukul : ${currentTime}
+🕒 Pukul : ${localTime} WITA
 📌 Status : ${status}
 📝 Keterangan : ${keterangan}
 
@@ -698,9 +709,11 @@ Terima kasih atas perhatian Anda 🙏`;
 
     const syncIcon = syncStatus === 'success' ? '☁️' : '💾';
     const syncText = syncStatus === 'success' ? 'Tersinkronisasi' : 'Lokal';
+    const currentTime = DateTimeUtils.getLocalTime();
     notification.innerHTML = `
       ✅ ${nama}<br>
-      <small style="opacity: 0.9">${syncIcon} ${syncText}</small>
+      <small style="opacity: 0.9">${syncIcon} ${syncText}</small><br>
+      <small style="opacity: 0.7">🕐 ${currentTime} WITA</small>
     `;
 
     // Add slide-in animation
@@ -734,6 +747,13 @@ Terima kasih atas perhatian Anda 🙏`;
   const recordAttendance = async (user) => {
     const today = DateTimeUtils.getLocalDate();
     const currentTime = DateTimeUtils.getLocalTime();
+
+    console.log('📅 Recording attendance with local timezone:', {
+      date: today,
+      time: currentTime,
+      timezone: 'Asia/Makassar (UTC+8)',
+      user: user.nama
+    });
 
     let status, keterangan, att;
 
