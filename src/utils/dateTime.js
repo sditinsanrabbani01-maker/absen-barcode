@@ -10,8 +10,15 @@ export class DateTimeUtils {
    */
   static getLocalDate() {
     const now = new Date();
-    const makassarTime = new Date(now.getTime() + this.MAKASSAR_OFFSET);
-    return makassarTime.toISOString().split('T')[0];
+    const dateString = now.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    // Convert from DD/MM/YYYY to YYYY-MM-DD format
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month}-${day}`;
   }
 
   /**
@@ -19,9 +26,16 @@ export class DateTimeUtils {
    * @returns {string} Time in HH:MM:SS format
    */
   static getLocalTime() {
+    // Use Intl API for proper timezone handling
     const now = new Date();
-    const makassarTime = new Date(now.getTime() + this.MAKASSAR_OFFSET);
-    return makassarTime.toTimeString().split(' ')[0];
+    const timeString = now.toLocaleTimeString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    return timeString;
   }
 
   /**
@@ -30,8 +44,23 @@ export class DateTimeUtils {
    */
   static getLocalDateTime() {
     const now = new Date();
-    const makassarTime = new Date(now.getTime() + this.MAKASSAR_OFFSET);
-    return makassarTime.toISOString().replace('T', ' ').split('.')[0];
+    const dateString = now.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    const timeString = now.toLocaleTimeString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    // Convert from DD/MM/YYYY to YYYY-MM-DD format
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month}-${day} ${timeString}`;
   }
 
   /**
@@ -41,8 +70,15 @@ export class DateTimeUtils {
    */
   static utcToLocalDate(utcDate) {
     const date = new Date(utcDate);
-    const localDate = new Date(date.getTime() + this.MAKASSAR_OFFSET);
-    return localDate.toISOString().split('T')[0];
+    const dateString = date.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    // Convert from DD/MM/YYYY to YYYY-MM-DD format
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month}-${day}`;
   }
 
   /**
@@ -52,8 +88,23 @@ export class DateTimeUtils {
    */
   static utcToLocalDateTime(utcDateTime) {
     const dateTime = new Date(utcDateTime);
-    const localDateTime = new Date(dateTime.getTime() + this.MAKASSAR_OFFSET);
-    return localDateTime.toISOString().replace('T', ' ').split('.')[0];
+    const dateString = dateTime.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    const timeString = dateTime.toLocaleTimeString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    // Convert from DD/MM/YYYY to YYYY-MM-DD format
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month}-${day} ${timeString}`;
   }
 
   /**
@@ -102,9 +153,8 @@ export class DateTimeUtils {
    */
   static getLocalMonthName(month, year) {
     const date = new Date(year, month - 1, 1);
-    const localDate = new Date(date.getTime() + this.MAKASSAR_OFFSET);
 
-    return localDate.toLocaleDateString('id-ID', {
+    return date.toLocaleDateString('id-ID', {
       timeZone: 'Asia/Makassar',
       month: 'long',
       year: 'numeric'
@@ -129,8 +179,30 @@ export class DateTimeUtils {
    * @returns {object} Object with startDate and endDate
    */
   static getMonthBounds(year, month) {
-    const startDate = this.utcToLocalDate(new Date(year, month - 1, 1));
-    const endDate = this.utcToLocalDate(new Date(year, month, 0));
+    // Create date in local timezone using Intl API
+    const startDateTime = new Date(year, month - 1, 1);
+    const endDateTime = new Date(year, month, 0);
+
+    const startDateString = startDateTime.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+
+    const endDateString = endDateTime.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+
+    // Convert from DD/MM/YYYY to YYYY-MM-DD format
+    const [startDay, startMonth, startYear] = startDateString.split('/');
+    const [endDay, endMonth, endYear] = endDateString.split('/');
+
+    const startDate = `${startYear}-${startMonth}-${startDay}`;
+    const endDate = `${endYear}-${endMonth}-${endDay}`;
 
     return { startDate, endDate };
   }
@@ -156,9 +228,11 @@ export class DateTimeUtils {
     const daysInMonth = new Date(year, month, 0).getDate();
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const utcDate = new Date(year, month - 1, day);
-      const localDate = new Date(utcDate.getTime() + this.MAKASSAR_OFFSET);
-      const dayOfWeek = localDate.getDay();
+      const date = new Date(year, month - 1, day);
+      const dayOfWeek = date.toLocaleDateString('id-ID', {
+        timeZone: 'Asia/Makassar',
+        weekday: 'numeric'
+      });
       // Count weekdays (Monday = 1 to Friday = 5)
       if (dayOfWeek >= 1 && dayOfWeek <= 5) {
         workingDays++;
