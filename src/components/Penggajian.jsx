@@ -15,6 +15,7 @@ import { supabase } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
 import { AuthService } from '../services/AuthService';
 import { DateTimeUtils } from '../utils/dateTime';
+import { PerformanceService } from '../services/PerformanceService';
 import SyncStatus from './SyncStatus';
 
 const Penggajian = ({ mode }) => {

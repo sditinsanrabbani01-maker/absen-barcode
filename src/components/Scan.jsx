@@ -10,6 +10,7 @@ import { DatabaseService, TABLES } from '../config/supabase';
 import { supabase } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
 import { DateTimeUtils } from '../utils/dateTime';
+import { PerformanceService } from '../services/PerformanceService';
 import AnimatedDialog from './AnimatedDialog';
 
 // Add mobile viewport fixes
@@ -150,6 +151,15 @@ const Scan = () => {
       console.log('🔄 Real-time attendance change detected in Scan:', change);
       // Could trigger refresh of attendance data if needed
     });
+
+    // Preload all active users for faster scanning performance
+    setTimeout(() => {
+      PerformanceService.preloadAllActiveUsers().then(count => {
+        if (count > 0) {
+          console.log(`⚡ Preloaded ${count} users for faster scanning`);
+        }
+      });
+    }, 2000); // Delay preload to not interfere with initial scanning setup
 
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
@@ -342,45 +352,24 @@ const Scan = () => {
     });
 
     try {
-      // Enhanced user lookup with multiple search strategies
+      // Enhanced user lookup with performance optimization and caching
       let user = null;
+      const startTime = performance.now();
 
       try {
-        // Strategy 1: Direct identifier match in Supabase (real-time data)
-        const { data: supabaseGuru, error: guruError } = await supabase
-          .from(TABLES.GURU)
-          .select('*')
-          .eq('niy', decodedText)
-          .single();
+        // Strategy 1: Fast cached lookup (PerformanceService)
+        user = await PerformanceService.getCachedUser(decodedText);
 
-        const { data: supabaseSiswa, error: siswaError } = await supabase
-          .from(TABLES.SISWA)
-          .select('*')
-          .eq('nisn', decodedText)
-          .single();
-
-        if (!guruError && supabaseGuru) {
-          user = supabaseGuru;
-          console.log('👤 User found in Supabase (Guru):', user.nama);
-        } else if (!siswaError && supabaseSiswa) {
-          user = supabaseSiswa;
-          console.log('👤 User found in Supabase (Siswa):', user.nama);
-        }
-      } catch (supabaseError) {
-        console.warn('⚠️ Supabase lookup failed, trying local database:', supabaseError);
-      }
-
-      // Strategy 2: Fallback to local database
-      if (!user) {
-        const [guru, siswa] = await Promise.all([
-          db.guru.where('niy').equals(decodedText).first(),
-          db.siswa.where('nisn').equals(decodedText).first()
-        ]);
-
-        user = guru || siswa;
         if (user) {
-          console.log('👤 User found in local database:', user.nama);
+          const lookupTime = performance.now() - startTime;
+          PerformanceService.performanceMetrics.cacheHits++;
+          PerformanceService.performanceMetrics.averageLookupTime =
+            (PerformanceService.performanceMetrics.averageLookupTime + lookupTime) / 2;
+
+          console.log(`⚡ User found in cache (${lookupTime.toFixed(2)}ms):`, user.nama);
         }
+      } catch (cacheError) {
+        console.warn('⚠️ Cache lookup failed:', cacheError);
       }
 
       // Strategy 2: If no direct match, try fuzzy matching for damaged QR codes
@@ -657,36 +646,33 @@ Terima kasih atas perhatian Anda 🙏`;
 
   const checkDuplicateAttendance = async (identifier, today, currentAtt) => {
     try {
-      // Check Supabase first (real-time data)
-      const { data: supabaseAttendance, error: supabaseError } = await supabase
-        .from(TABLES.ATTENDANCE)
-        .select('*')
-        .eq('identifier', identifier)
-        .eq('tanggal', today)
-        .eq('att', currentAtt);
+      // Use PerformanceService for faster duplicate checking
+      const attendanceRecords = await PerformanceService.getCachedAttendance(identifier, today);
 
-      if (!supabaseError && supabaseAttendance && supabaseAttendance.length > 0) {
-        console.log('🚫 Duplicate attendance found in Supabase');
+      // Filter by attendance type
+      const duplicateRecords = attendanceRecords.filter(record => record.att === currentAtt);
+
+      if (duplicateRecords.length > 0) {
+        console.log('🚫 Duplicate attendance found:', duplicateRecords.length, 'records');
         return true;
       }
 
-      // Fallback to local database
-      const todayAttendance = await db.attendance
-        .where('identifier').equals(identifier)
-        .and(a => a.tanggal === today && a.att === currentAtt)
-        .toArray();
-
-      return todayAttendance.length > 0;
+      return false;
 
     } catch (error) {
       console.error('Error checking duplicate attendance:', error);
-      // Fallback to local only
-      const todayAttendance = await db.attendance
-        .where('identifier').equals(identifier)
-        .and(a => a.tanggal === today && a.att === currentAtt)
-        .toArray();
+      // Fallback to local database only
+      try {
+        const todayAttendance = await db.attendance
+          .where('identifier').equals(identifier)
+          .and(a => a.tanggal === today && a.att === currentAtt)
+          .toArray();
 
-      return todayAttendance.length > 0;
+        return todayAttendance.length > 0;
+      } catch (localError) {
+        console.error('Local duplicate check also failed:', localError);
+        return false;
+      }
     }
   };
 
@@ -1123,6 +1109,40 @@ Terima kasih atas perhatian Anda 🙏`;
           >
             {beepEnabled ? '🔊' : '🔇'}
           </IconButton>
+
+          {/* Cache Management */}
+          <IconButton
+            onClick={() => {
+              const metrics = PerformanceService.getPerformanceMetrics();
+              const action = confirm(
+                `📊 Performance Metrics:\n` +
+                `• Cache Size: ${metrics.cacheSize} users\n` +
+                `• Cache Hit Rate: ${metrics.cacheHitRate}\n` +
+                `• Total Lookups: ${metrics.totalLookups}\n` +
+                `• Average Lookup Time: ${metrics.averageLookupTime.toFixed(2)}ms\n\n` +
+                `⚡ Clear cache to free memory?`
+              );
+              if (action) {
+                PerformanceService.clearCache();
+                alert('✅ Cache cleared! Performance metrics reset.');
+              }
+            }}
+            sx={{
+              bgcolor: 'rgba(0,0,0,0.7)',
+              color: 'white',
+              border: '2px solid rgba(76, 175, 80, 0.8)',
+              backdropFilter: 'blur(10px)',
+              '&:hover': {
+                transform: 'scale(1.1)',
+                bgcolor: 'rgba(0,0,0,0.9)'
+              },
+              transition: 'all 0.2s ease-in-out'
+            }}
+            size="large"
+            title="View Performance Metrics & Clear Cache"
+          >
+            ⚡
+          </IconButton>
             {/* Enhanced Mode Toggle */}
             <IconButton
               onClick={toggleEnhancedMode}
@@ -1265,6 +1285,9 @@ Terima kasih atas perhatian Anda 🙏`;
                 </Typography>
                 <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'success.main' }}>
                   ☁️ Real-time Sync
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'info.main' }}>
+                  ⚡ Cache: {PerformanceService.userCache.size}
                 </Typography>
                 {beepEnabled && (
                   <Typography variant="caption" sx={{ opacity: 0.7, fontWeight: 'bold', color: 'warning.main' }}>
