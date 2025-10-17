@@ -11,6 +11,7 @@ import { supabase, TABLES } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
 import { DateTimeUtils } from '../utils/dateTime';
 import { PerformanceService } from '../services/PerformanceService';
+import AnimatedDialog from './AnimatedDialog';
 
 // Mobile viewport fixes
 const mobileViewportStyles = `
