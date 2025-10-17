@@ -1,48 +1,39 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Typography, Button, IconButton, Select, MenuItem, FormControl, InputLabel, DialogTitle, DialogContent, DialogActions } from '@mui/material';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import FlipCameraAndroidIcon from '@mui/icons-material/FlipCameraAndroid';
-import CropSquareIcon from '@mui/icons-material/CropSquare';
+import { Box, Typography, Button, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Alert } from '@mui/material';
+import { Html5Qrcode } from 'html5-qrcode';
+import {
+  ArrowBack, FlipCameraAndroid, QrCodeScanner, VolumeUp, VolumeOff,
+  Cloud, Settings, Refresh, Error as ErrorIcon, CheckCircle
+} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../database';
-import { DatabaseService, TABLES } from '../config/supabase';
-import { supabase } from '../config/supabase';
+import { supabase, TABLES } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
 import { DateTimeUtils } from '../utils/dateTime';
 import { PerformanceService } from '../services/PerformanceService';
-import AnimatedDialog from './AnimatedDialog';
 
-// Add mobile viewport fixes
+// Mobile viewport fixes
 const mobileViewportStyles = `
-  /* Fix for mobile viewport height issues */
   .mobile-camera-container {
     height: 100dvh !important;
     height: 100vh !important;
   }
-
-  /* iOS Safari specific fixes */
   @supports (-webkit-touch-callout: none) {
     .mobile-camera-container {
       height: -webkit-fill-available !important;
       min-height: 100vh !important;
     }
   }
-
-  /* Ensure camera video fills container */
   #qr-reader video {
     object-fit: cover !important;
     width: 100% !important;
     height: 100% !important;
   }
-
-  /* Prevent zoom on input focus (iOS) */
-  #qr-reader {
-    touch-action: manipulation;
-  }
+  #qr-reader { touch-action: manipulation; }
 `;
 
 const Scan = () => {
+  // Core state
   const [scanResult, setScanResult] = useState('');
   const [scanMode, setScanMode] = useState('normal');
   const [selectedCamera, setSelectedCamera] = useState('');
@@ -50,88 +41,90 @@ const Scan = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [processedCodes, setProcessedCodes] = useState(new Set());
   const [scanCount, setScanCount] = useState(0);
-  const [duplicateDialog, setDuplicateDialog] = useState({ open: false, nama: '', status: '', att: '' });
-  const [mirrorMode, setMirrorMode] = useState(true); // Default mirror mode enabled
-  const [scannerSize, setScannerSize] = useState(3); // 0: Kecil, 1: Sedang, 2: Besar, 3: FULL (default)
-  const [retryCount, setRetryCount] = useState(0);
-  const [maxRetries] = useState(3);
-  const [scanAttempts, setScanAttempts] = useState(0);
-  const [lastScanTime, setLastScanTime] = useState(0);
-  const [enhancedMode, setEnhancedMode] = useState(true); // Enable enhanced scanning by default
-  const [beepEnabled, setBeepEnabled] = useState(true); // Enable beep sound by default
-  const html5QrCodeRef = useRef(null);
-  const navigate = useNavigate();
 
-  // Real-time context
+  // UI state
+  const [duplicateDialog, setDuplicateDialog] = useState({ open: false, nama: '', status: '', att: '' });
+  const [mirrorMode, setMirrorMode] = useState(true);
+  const [scannerSize, setScannerSize] = useState(3);
+  const [beepEnabled, setBeepEnabled] = useState(true);
+
+  // Refs
+  const html5QrCodeRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const navigate = useNavigate();
   const { subscribeToTable } = useRealtime();
 
-  // Audio context for beep sound
-  const audioContextRef = useRef(null);
-
   // Initialize audio context
-  const initAudioContext = () => {
+  const initAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
     return audioContextRef.current;
-  };
+  }, []);
 
   // Play scanner beep sound
-  const playBeepSound = () => {
+  const playBeepSound = useCallback(() => {
     if (!beepEnabled) return;
 
     try {
       const audioContext = initAudioContext();
-
-      // Resume audio context if suspended (required by some browsers)
       if (audioContext.state === 'suspended') {
         audioContext.resume();
       }
 
-      // Create oscillator for beep sound
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
 
-      // Configure beep sound (high-pitched, short duration)
-      oscillator.type = 'sawtooth';
-      oscillator.frequency.setValueAtTime(2500, audioContext.currentTime); // 800Hz beep
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
 
-      // Configure volume envelope
-      gainNode.gain.setValueAtTime(10, audioContext.currentTime); // Start volume
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1); // Fade out
-
-      // Connect nodes
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
 
-      // Play beep
       oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.05); // 100ms beep
+      oscillator.stop(audioContext.currentTime + 0.1);
 
     } catch (error) {
       console.warn('Could not play beep sound:', error);
-      // Fallback: try to use system beep if available
-      try {
-        if (navigator.vibrate) {
-          navigator.vibrate(100); // 100ms vibration on mobile
-        }
-      } catch (vibrationError) {
-        console.warn('Could not vibrate:', vibrationError);
+      if (navigator.vibrate) {
+        navigator.vibrate(100);
       }
     }
-  };
+  }, [beepEnabled, initAudioContext]);
 
+  // Initialize component
   useEffect(() => {
-    // Read scan mode from URL parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const mode = urlParams.get('mode') || 'normal';
-    setScanMode(mode);
+    initializeScanner();
+    setupSubscriptions();
+    preloadUserData();
 
-    // Get available cameras
-    Html5Qrcode.getCameras().then(devices => {
+    // Handle window resize
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+      cleanup();
+    };
+  }, []);
+
+  // Initialize scanner and camera
+  const initializeScanner = async () => {
+    try {
+      // Read scan mode from URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const mode = urlParams.get('mode') || 'normal';
+      setScanMode(mode);
+
+      // Get available cameras
+      const devices = await Html5Qrcode.getCameras();
       if (devices && devices.length) {
         setCameras(devices);
-        // Auto-select back camera if available, otherwise first available camera
+
+        // Auto-select back camera
         const backCamera = devices.find(device =>
           device.label.toLowerCase().includes('back') ||
           device.label.toLowerCase().includes('environment') ||
@@ -140,38 +133,44 @@ const Scan = () => {
         const selectedDevice = backCamera || devices[0];
         setSelectedCamera(selectedDevice.id);
       }
-    }).catch(err => {
-      console.error('Error getting cameras:', err);
-    });
+    } catch (error) {
+      console.error('Error initializing scanner:', error);
+    }
+  };
 
-    // Setup real-time subscriptions for attendance data
+  // Setup real-time subscriptions
+  const setupSubscriptions = () => {
     console.log('📡 Setting up real-time attendance subscriptions...');
 
     const attendanceSubscription = subscribeToTable(TABLES.ATTENDANCE, (change) => {
       console.log('🔄 Real-time attendance change detected in Scan:', change);
-      // Could trigger refresh of attendance data if needed
     });
 
-    // Preload all active users for faster scanning performance
-    setTimeout(() => {
-      PerformanceService.preloadAllActiveUsers().then(count => {
+    // Store cleanup function
+    window.attendanceSubscription = attendanceSubscription;
+  };
+
+  // Preload user data for faster scanning
+  const preloadUserData = async () => {
+    setTimeout(async () => {
+      try {
+        const count = await PerformanceService.preloadAllActiveUsers();
         if (count > 0) {
           console.log(`⚡ Preloaded ${count} users for faster scanning`);
         }
-      });
-    }, 2000); // Delay preload to not interfere with initial scanning setup
+      } catch (error) {
+        console.warn('Failed to preload user data:', error);
+      }
+    }, 2000);
+  };
 
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
-
-    // Cleanup on unmount
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleResize);
-      stopScanning();
-      attendanceSubscription?.unsubscribe?.();
-    };
-  }, [selectedCamera, subscribeToTable]);
+  // Cleanup function
+  const cleanup = async () => {
+    await stopScanning();
+    if (window.attendanceSubscription) {
+      window.attendanceSubscription.unsubscribe?.();
+    }
+  };
 
   // Start scanning when camera is selected
   useEffect(() => {
@@ -180,109 +179,33 @@ const Scan = () => {
     }
   }, [selectedCamera, isScanning]);
 
+  // Start scanning with optimized configuration
   const startScanning = useCallback(async (cameraId) => {
     try {
       if (!html5QrCodeRef.current) {
         html5QrCodeRef.current = new Html5Qrcode("qr-reader");
       }
 
-      const scannerConfig = getScannerConfig(scannerSize);
-
-      // Enhanced configuration for better sensitivity with blurry/damaged QR codes
       const config = {
-        fps: enhancedMode ? 30 : 15, // Higher FPS for more frequent scanning attempts
-        qrbox: scannerConfig.qrbox,
+        fps: 30,
+        qrbox: getScannerConfig(scannerSize).qrbox,
         aspectRatio: 1.0,
-        // Enhanced experimental features for better detection
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: false, // Use software decoder for better control
-        },
-        // Additional configuration for better QR detection
-        supportedScanTypes: [
-          Html5QrcodeSupportedFormats.QR_CODE // Focus only on QR codes
-        ],
-        // Show QR code outlines for debugging (development only)
+        experimentalFeatures: { useBarCodeDetectorIfSupported: false },
+        supportedScanTypes: [Html5QrcodeSupportedFormats.QR_CODE],
         showTorchButtonIfSupported: true,
         showZoomSliderIfSupported: true,
-        // Default zoom level for better focus
         defaultZoomValueIfSupported: 2,
-        // Additional settings for better detection
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        // Improve detection of low quality QR codes
-        useWebgl: false // Use CPU for better compatibility with low quality codes
+        useWebgl: false
       };
 
-      // Add preprocessing for better QR detection
-      if (enhancedMode) {
-        console.log('🎯 Enhanced scanning mode activated - optimized for blurry/damaged QR codes');
-      }
-
-      // Enhanced success callback with retry mechanism
-      const enhancedOnScanSuccess = async (decodedText, decodedResult) => {
-    const currentTime = new Date(); // Waktu lokal perangkat
-    const localTimeString = currentTime.toLocaleString('id-ID', { timeZone: 'Asia/Makassar' }); // Mengonversi waktu ke zona waktu WITA (Asia/Makassar)
-
-    setLastScanTime(localTimeString); // Menyimpan waktu dalam format lokal WITA
-    setScanAttempts(prev => prev + 1);
-
-    console.log('🔍 QR Code detected:', decodedText);
-    console.log('📊 Detection confidence:', decodedResult.result.correctionLevel || 'Unknown');
-    console.log('📅 Scan Time (WITA):', localTimeString); // Menampilkan waktu dalam WITA
-
-    // Reset retry count on successful scan
-    setRetryCount(0);
-
-    // Play success beep sound
-    playBeepSound();
-
-    // Process the scan result
-    await onScanSuccess(decodedText);
-};
-
-
-      // Enhanced failure callback with retry logic
-      const enhancedOnScanFailure = (error) => {
-        const currentTime = Date.now();
-
-        // Only log errors, don't show to user as it's normal for failed scans
-        console.debug('Scan attempt failed:', error);
-
-        // Implement retry mechanism for failed scans
-        if (enhancedMode && currentTime - lastScanTime > 5000) { // If no successful scan in 5 seconds
-          setRetryCount(prev => {
-            const newCount = prev + 1;
-            if (newCount >= maxRetries) {
-              console.log('🔄 Switching to enhanced scanning mode due to repeated failures');
-              // Could implement fallback scanning strategies here
-              return 0; // Reset counter
-            }
-            return newCount;
-          });
-        }
-
-        onScanFailure(error);
-      };
-
-      await html5QrCodeRef.current.start(
-        cameraId,
-        config,
-        enhancedOnScanSuccess,
-        enhancedOnScanFailure
-      );
-
+      await html5QrCodeRef.current.start(cameraId, config, onScanSuccess, onScanFailure);
       setIsScanning(true);
-      console.log('🚀 Enhanced QR Scanner started with improved sensitivity');
+      console.log('🚀 Scanner started successfully');
     } catch (error) {
-      console.error('Failed to start enhanced scanner:', error);
-
-      // Fallback to basic scanning if enhanced fails
-      if (enhancedMode) {
-        console.log('🔄 Falling back to basic scanning mode');
-        setEnhancedMode(false);
-        setTimeout(() => startScanning(cameraId), 1000);
-      }
+      console.error('Failed to start scanner:', error);
     }
-  }, [enhancedMode, scannerSize, lastScanTime, maxRetries]);
+  }, [scannerSize]);
 
   const stopScanning = useCallback(async () => {
     try {
@@ -306,111 +229,68 @@ const Scan = () => {
     }
   }, [isScanning, stopScanning, startScanning, selectedCamera]);
 
+  // Handle successful QR code scan
   const onScanSuccess = async (decodedText, decodedResult) => {
     const currentTime = Date.now();
 
-    // Enhanced duplicate checking with time-based reset
+    // Check for duplicates
     if (processedCodes.has(decodedText)) {
-      // Reset processed codes after 10 minutes to allow re-scanning
       const timeSinceLastScan = currentTime - lastScanTime;
       if (timeSinceLastScan > 600000) { // 10 minutes
         setProcessedCodes(new Set());
         console.log('🔄 Reset duplicate tracking after timeout');
       } else {
-        // Find user to show name in duplicate message
         try {
           const [guru, siswa] = await Promise.all([
             db.guru.where('niy').equals(decodedText).first(),
             db.siswa.where('nisn').equals(decodedText).first()
           ]);
           const user = guru || siswa;
-
-          if (user) {
-            alert(`Maaf ${user.nama} telah absen`);
-          } else {
-            alert('Kode QR sudah dipindai sebelumnya');
-          }
+          alert(user ? `Maaf ${user.nama} telah absen` : 'Kode QR sudah dipindai sebelumnya');
         } catch (error) {
-          console.error('Error checking duplicate:', error);
           alert('Kode QR sudah dipindai sebelumnya');
         }
         return;
       }
     }
 
-    // Mark code as processed
+    // Mark as processed and update counters
     setProcessedCodes(prev => new Set([...prev, decodedText]));
     setScanResult(decodedText);
     setScanCount(prev => prev + 1);
     setLastScanTime(currentTime);
 
-    console.log('✅ QR Code successfully decoded:', {
-      text: decodedText,
-      confidence: decodedResult?.result?.correctionLevel || 'Unknown',
-      format: decodedResult?.result?.format || 'QR_CODE',
-      attempts: scanAttempts
-    });
+    console.log('✅ QR Code decoded:', decodedText);
 
     try {
-      // Enhanced user lookup with performance optimization and caching
-      let user = null;
-      const startTime = performance.now();
+      // Fast user lookup with caching
+      let user = await PerformanceService.getCachedUser(decodedText);
 
-      try {
-        // Strategy 1: Fast cached lookup (PerformanceService)
-        user = await PerformanceService.getCachedUser(decodedText);
-
-        if (user) {
-          const lookupTime = performance.now() - startTime;
-          PerformanceService.performanceMetrics.cacheHits++;
-          PerformanceService.performanceMetrics.averageLookupTime =
-            (PerformanceService.performanceMetrics.averageLookupTime + lookupTime) / 2;
-
-          console.log(`⚡ User found in cache (${lookupTime.toFixed(2)}ms):`, user.nama);
-        }
-      } catch (cacheError) {
-        console.warn('⚠️ Cache lookup failed:', cacheError);
-      }
-
-      // Strategy 2: If no direct match, try fuzzy matching for damaged QR codes
       if (!user && enhancedMode) {
-        console.log('🔍 No direct match found, trying fuzzy search...');
-
-        // Try partial matches for damaged QR codes
+        // Fallback to fuzzy matching for damaged QR codes
         const allUsers = await Promise.all([
           db.guru.where('status').equals('active').toArray(),
           db.siswa.where('status').equals('active').toArray()
         ]);
 
         const allActiveUsers = [...allUsers[0], ...allUsers[1]];
-
-        // Find users with similar identifiers (for damaged QR codes)
         const similarUsers = allActiveUsers.filter(u => {
           const identifier = u.niy || u.nisn;
-          return identifier && (
-            identifier.includes(decodedText) ||
-            decodedText.includes(identifier) ||
-            calculateStringSimilarity(identifier, decodedText) > 0.7
-          );
+          return identifier && calculateStringSimilarity(identifier, decodedText) > 0.7;
         });
 
         if (similarUsers.length === 1) {
           user = similarUsers[0];
           console.log('🎯 Found similar match:', user.nama);
-        } else if (similarUsers.length > 1) {
-          console.log('⚠️ Multiple similar matches found:', similarUsers.length);
         }
       }
 
-      if (user) {
-        if (user.status === 'active') {
-          await recordAttendance(user);
-          showSuccessNotification(user.nama);
-        } else {
-          alert('Pengguna ditemukan tetapi status tidak aktif. Status: ' + user.status);
-        }
+      if (user && user.status === 'active') {
+        await recordAttendance(user);
+        showSuccessNotification(user.nama);
+      } else if (user) {
+        alert('Pengguna ditemukan tetapi status tidak aktif. Status: ' + user.status);
       } else {
-        // Enhanced error message with suggestions
         const [activeGuru, activeSiswa] = await Promise.all([
           db.guru.where('status').equals('active').toArray(),
           db.siswa.where('status').equals('active').toArray()
@@ -420,88 +300,17 @@ const Scan = () => {
         activeGuru.slice(0, 3).forEach(g => suggestions.push(`Guru: ${g.niy} - ${g.nama}`));
         activeSiswa.slice(0, 3).forEach(s => suggestions.push(`Siswa: ${s.nisn} - ${s.nama}`));
 
-        alert(`❌ Pengguna tidak ditemukan dengan identifier: ${decodedText}\n\n💡 Pastikan QR code tidak buram atau rusak.\n\n📋 Contoh identifier yang valid:\n${suggestions.join('\n')}\n\n🔄 Coba scan ulang dengan posisi yang lebih jelas.`);
+        alert(`❌ Pengguna tidak ditemukan: ${decodedText}\n\n💡 Pastikan QR code tidak buram.\n\n📋 Contoh valid:\n${suggestions.join('\n')}`);
       }
     } catch (error) {
-      console.error('Error during enhanced scan processing:', error);
-      alert('Terjadi kesalahan saat memproses scan: ' + error.message);
+      console.error('Error processing scan:', error);
+      alert('Terjadi kesalahan: ' + error.message);
     }
-
-    // Scanner stays running for continuous scanning
   };
 
+  // Handle scan failure
   const onScanFailure = (error) => {
-    // Enhanced failure handling with retry logic
-    const currentTime = Date.now();
-
-    // Only log errors, don't show to user as it's normal for failed scans
     console.debug('Scan attempt failed:', error);
-
-    // Implement retry mechanism for failed scans
-    if (enhancedMode && currentTime - lastScanTime > 5000) { // If no successful scan in 5 seconds
-      setRetryCount(prev => {
-        const newCount = prev + 1;
-        if (newCount >= maxRetries) {
-          console.log('🔄 Switching to enhanced scanning mode due to repeated failures');
-          // Could implement fallback scanning strategies here
-          return 0; // Reset counter
-        }
-        return newCount;
-      });
-    }
-  };
-
-  // Calculate string similarity for fuzzy matching (for damaged QR codes)
-  const calculateStringSimilarity = (str1, str2) => {
-    if (!str1 || !str2) return 0;
-
-    const longer = str1.length > str2.length ? str1 : str2;
-    const shorter = str1.length > str2.length ? str2 : str1;
-
-    if (longer.length === 0) return 1.0;
-
-    const editDistance = levenshteinDistance(longer, shorter);
-    return (longer.length - editDistance) / longer.length;
-  };
-
-  // Calculate Levenshtein distance for string similarity
-  const levenshteinDistance = (str1, str2) => {
-    const matrix = [];
-
-    for (let i = 0; i <= str2.length; i++) {
-      matrix[i] = [i];
-    }
-
-    for (let j = 0; j <= str1.length; j++) {
-      matrix[0][j] = j;
-    }
-
-    for (let i = 1; i <= str2.length; i++) {
-      for (let j = 1; j <= str1.length; j++) {
-        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1, // substitution
-            matrix[i][j - 1] + 1,     // insertion
-            matrix[i - 1][j] + 1      // deletion
-          );
-        }
-      }
-    }
-
-    return matrix[str2.length][str1.length];
-  };
-
-  // Toggle enhanced scanning mode
-  const toggleEnhancedMode = async () => {
-    setEnhancedMode(!enhancedMode);
-
-    // Restart scanner with new settings
-    if (isScanning) {
-      await stopScanning();
-      await startScanning(selectedCamera);
-    }
   };
 
   // Calculate attendance status and type based on time and user type
@@ -687,8 +496,9 @@ Terima kasih atas perhatian Anda 🙏`;
     }
   };
 
+  // Show success notification
+  // Show success notification
   const showSuccessNotification = (nama, syncStatus = 'success') => {
-    // Create a temporary notification that disappears after 4 seconds
     const notification = document.createElement('div');
     notification.style.cssText = `
       position: fixed;
@@ -703,80 +513,60 @@ Terima kasih atas perhatian Anda 🙏`;
       font-family: 'Roboto', sans-serif;
       font-size: 14px;
       font-weight: 500;
-      animation: slideIn 0.3s ease-out;
       max-width: 300px;
     `;
 
     const syncIcon = syncStatus === 'success' ? '☁️' : '💾';
     const syncText = syncStatus === 'success' ? 'Tersinkronisasi' : 'Lokal';
     const currentTime = DateTimeUtils.getLocalTime();
+
     notification.innerHTML = `
       ✅ ${nama}<br>
       <small style="opacity: 0.9">${syncIcon} ${syncText}</small><br>
       <small style="opacity: 0.7">🕐 ${currentTime} WITA</small>
     `;
 
-    // Add slide-in animation
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes slideIn {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-      }
-      @keyframes pulse {
-        0% { transform: scale(1); opacity: 1; }
-        50% { transform: scale(1.05); opacity: 0.9; }
-        100% { transform: scale(1); opacity: 1; }
-      }
-    `;
-    document.head.appendChild(style);
-
     document.body.appendChild(notification);
 
-    // Remove after 4 seconds
     setTimeout(() => {
-      notification.style.animation = 'slideIn 0.3s ease-in reverse';
-      setTimeout(() => {
-        document.body.removeChild(notification);
-        document.head.removeChild(style);
-      }, 300);
+      document.body.removeChild(notification);
     }, 4000);
   };
 
 
+  // Record attendance with real-time sync
+  // Record attendance with real-time sync
   const recordAttendance = async (user) => {
     const today = DateTimeUtils.getLocalDate();
     const currentTime = DateTimeUtils.getLocalTime();
 
-    console.log('📅 Recording attendance with local timezone:', {
-      date: today,
-      time: currentTime,
-      timezone: 'Asia/Makassar (UTC+8)',
-      user: user.nama
-    });
+    console.log('📅 Recording attendance:', { date: today, time: currentTime, user: user.nama });
 
+    // Determine attendance status
     let status, keterangan, att;
-
     if (scanMode === 'early_departure') {
       status = 'Pulang';
       keterangan = 'Pulang';
       att = 'Pulang';
     } else {
       const result = await calculateAttendanceStatus(currentTime, user.sebagai);
-      status = result.att; // Use att as status since we removed status field
+      status = result.att;
       keterangan = result.keterangan;
       att = result.att;
     }
 
+    // Check for duplicates
     const isDuplicate = await checkDuplicateAttendance(user.niy || user.nisn, today, att);
-
     if (isDuplicate) {
-      const lastEntry = await db.attendance.where('identifier').equals(user.niy || user.nisn).and(a => a.tanggal === today && a.att === att).last();
-      // Show custom blocking dialog for duplicate attendance
+      const lastEntry = await db.attendance
+        .where('identifier').equals(user.niy || user.nisn)
+        .and(a => a.tanggal === today && a.att === att)
+        .last();
       setDuplicateDialog({ open: true, nama: user.nama, status: lastEntry?.status || 'Unknown', att });
       return;
     }
 
+    // Create attendance record
     const newEntry = {
       tanggal: today,
       identifier: user.niy || user.nisn,
@@ -794,109 +584,82 @@ Terima kasih atas perhatian Anda 🙏`;
     };
 
     try {
-      console.log('💾 Recording attendance with real-time sync...');
-
-      // Save to Supabase first (for real-time sync)
+      // Save to Supabase first
       const { data: supabaseResult, error: supabaseError } = await supabase
         .from(TABLES.ATTENDANCE)
         .insert(newEntry)
         .select()
         .single();
 
-      if (supabaseError) {
-        console.error('❌ Supabase attendance save error:', supabaseError);
-        throw new Error('Failed to save to Supabase: ' + supabaseError.message);
-      }
+      if (supabaseError) throw new Error('Failed to save to Supabase: ' + supabaseError.message);
 
-      // Save to local database with Supabase ID
-      const localResult = await db.attendance.add({
+      // Save to local database
+      await db.attendance.add({
         ...newEntry,
-        id: supabaseResult?.id // Use Supabase ID for consistency
+        id: supabaseResult?.id
       });
 
-      console.log('✅ Attendance recorded successfully:', {
-        supabaseId: supabaseResult?.id,
-        localId: localResult,
-        user: user.nama,
-        status: status
-      });
+      console.log('✅ Attendance recorded successfully');
 
-      // Send WhatsApp message after successful recording
+      // Send WhatsApp notification
       sendWhatsAppMessage(user, today, currentTime, status, keterangan);
-
-      // Show enhanced success notification with sync status
       showSuccessNotification(`${user.nama} - ${status} (${keterangan})`, 'success');
 
     } catch (error) {
       console.error('❌ Error recording attendance:', error);
 
-      // Fallback to local only if Supabase fails
+      // Fallback to local only
       try {
-        console.log('🔄 Fallback: Saving to local database only...');
         await db.attendance.add(newEntry);
-        console.log('✅ Attendance saved to local database as fallback');
-
-        // Still send WhatsApp message
         sendWhatsAppMessage(user, today, currentTime, status, keterangan);
         showSuccessNotification(`${user.nama} - ${status} (Local)`, 'local');
-
       } catch (localError) {
-        console.error('❌ Local database fallback also failed:', localError);
         alert('❌ Gagal menyimpan absensi: ' + error.message);
       }
     }
-
-    // Don't navigate away - stay in continuous scan mode
   };
 
+  // Handle camera change
   const handleCameraChange = async (cameraId) => {
-
-    // Stop current scanning
     await stopScanning();
-
-    // Reset scan result but keep processed codes and count
     setScanResult('');
-
-    // Start with new camera
     setSelectedCamera(cameraId);
   };
 
-
+  // Get scanner configuration based on size
   const getScannerConfig = (size) => {
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     const aspectRatio = viewportWidth / viewportHeight;
 
-    // Responsive sizing based on screen orientation - increased base size for better visibility
     let baseSize;
     if (aspectRatio > 1) {
-      // Landscape (16:9) - use more screen space
       baseSize = Math.min(viewportWidth * 0.9, viewportHeight * 0.95);
     } else {
-      // Portrait (9:16) - use more screen space
       baseSize = Math.min(viewportWidth * 0.95, viewportHeight * 0.9);
     }
 
     const configs = [
-      { qrbox: { width: Math.floor(baseSize * 0.4), height: Math.floor(baseSize * 0.4) }, label: 'KECIL' }, // 0: Kecil - 40% (increased from 30%)
-      { qrbox: { width: Math.floor(baseSize * 0.6), height: Math.floor(baseSize * 0.6) }, label: 'SEDANG' }, // 1: Sedang - 60% (increased from 50%)
-      { qrbox: { width: Math.floor(baseSize * 0.8), height: Math.floor(baseSize * 0.8) }, label: 'BESAR' }, // 2: Besar - 80% (increased from 70%)
-      { qrbox: { width: Math.floor(baseSize * 0.95), height: Math.floor(baseSize * 0.95) }, label: 'FULL' } // 3: Full - 95% (increased from 90%)
+      { qrbox: { width: Math.floor(baseSize * 0.4), height: Math.floor(baseSize * 0.4) }, label: 'KECIL' },
+      { qrbox: { width: Math.floor(baseSize * 0.6), height: Math.floor(baseSize * 0.6) }, label: 'SEDANG' },
+      { qrbox: { width: Math.floor(baseSize * 0.8), height: Math.floor(baseSize * 0.8) }, label: 'BESAR' },
+      { qrbox: { width: Math.floor(baseSize * 0.95), height: Math.floor(baseSize * 0.95) }, label: 'FULL' }
     ];
     return configs[size];
   };
 
+  // Cycle through scanner sizes
   const cycleScannerSize = async () => {
-    const newSize = (scannerSize + 1) % 4; // Cycle through 0, 1, 2, 3
+    const newSize = (scannerSize + 1) % 4;
     setScannerSize(newSize);
 
-    // Restart scanner with new size
     if (isScanning) {
       await stopScanning();
       await startScanning(selectedCamera);
     }
   };
 
+  // Get scanner size label
   const getScannerSizeLabel = () => {
     const labels = ['KECIL', 'SEDANG', 'BESAR', 'FULL'];
     return labels[scannerSize];
@@ -1163,49 +926,74 @@ Terima kasih atas perhatian Anda 🙏`;
           >
             ⚡
           </IconButton>
-            {/* Enhanced Mode Toggle */}
-            <IconButton
-              onClick={toggleEnhancedMode}
-              sx={{
-                bgcolor: enhancedMode ? 'success.main' : 'rgba(0,0,0,0.7)',
-                color: 'white',
-                border: '2px solid rgba(255,255,255,0.3)',
-                backdropFilter: 'blur(10px)',
-                '&:hover': {
-                  transform: 'scale(1.1)',
-                  bgcolor: enhancedMode ? 'success.dark' : 'rgba(0,0,0,0.9)'
-                },
-                transition: 'all 0.2s ease-in-out'
-              }}
-              size="large"
-              title={enhancedMode ? 'Mode Sensitif Aktif - Nonaktifkan' : 'Aktifkan Mode Sensitif'}
-            >
-              {enhancedMode ? '🎯' : '⚡'}
-            </IconButton>
 
-            {/* Mirror Toggle */}
-            <IconButton
-              onClick={() => setMirrorMode(!mirrorMode)}
-              sx={{
-                bgcolor: mirrorMode ? 'primary.main' : 'rgba(0,0,0,0.7)',
-                color: 'white',
-                border: '2px solid rgba(255,255,255,0.3)',
-                backdropFilter: 'blur(10px)',
-                '&:hover': {
-                  transform: 'scale(1.1)',
-                  bgcolor: mirrorMode ? 'primary.dark' : 'rgba(0,0,0,0.9)'
-                },
-                transition: 'all 0.2s ease-in-out'
-              }}
-              size="large"
-              title={mirrorMode ? 'Nonaktifkan Mirror' : 'Aktifkan Mirror'}
-            >
-              <FlipCameraAndroidIcon />
-            </IconButton>
+          {/* Mirror Toggle */}
+          <IconButton
+            onClick={() => setMirrorMode(!mirrorMode)}
+            sx={{
+              bgcolor: mirrorMode ? 'primary.main' : 'rgba(0,0,0,0.7)',
+              color: 'white',
+              border: '2px solid rgba(255,255,255,0.3)',
+              backdropFilter: 'blur(10px)',
+              '&:hover': {
+                transform: 'scale(1.1)',
+                bgcolor: mirrorMode ? 'primary.dark' : 'rgba(0,0,0,0.9)'
+              },
+              transition: 'all 0.2s ease-in-out'
+            }}
+            size="large"
+            title={mirrorMode ? 'Nonaktifkan Mirror' : 'Aktifkan Mirror'}
+          >
+            <FlipCameraAndroidIcon />
+          </IconButton>
 
-            {/* Scanner Size Toggle */}
+          {/* Scanner Size Toggle */}
+          <IconButton
+            onClick={cycleScannerSize}
+            sx={{
+              bgcolor: 'rgba(0,0,0,0.7)',
+              color: 'white',
+              border: '2px solid rgba(255,255,255,0.3)',
+              backdropFilter: 'blur(10px)',
+              '&:hover': {
+                transform: 'scale(1.1)',
+                bgcolor: 'rgba(0,0,0,0.9)'
+              },
+              transition: 'all 0.2s ease-in-out',
+              position: 'relative'
+            }}
+            size="large"
+            title={`Ukuran: ${getScannerSizeLabel()}`}
+          >
+            <CropSquareIcon />
+            <Box sx={{
+              position: 'absolute',
+              top: -8,
+              right: -8,
+              bgcolor: 'primary.main',
+              color: 'white',
+              borderRadius: '50%',
+              width: 24,
+              height: 24,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.6rem',
+              fontWeight: 'bold',
+              border: '2px solid white'
+            }}>
+              {scannerSize + 1}
+            </Box>
+          </IconButton>
+
+          {/* Camera Switch */}
+          {cameras.length > 1 && (
             <IconButton
-              onClick={cycleScannerSize}
+              onClick={() => {
+                const currentIndex = cameras.findIndex(c => c.id === selectedCamera);
+                const nextIndex = (currentIndex + 1) % cameras.length;
+                handleCameraChange(cameras[nextIndex].id);
+              }}
               sx={{
                 bgcolor: 'rgba(0,0,0,0.7)',
                 color: 'white',
@@ -1215,58 +1003,14 @@ Terima kasih atas perhatian Anda 🙏`;
                   transform: 'scale(1.1)',
                   bgcolor: 'rgba(0,0,0,0.9)'
                 },
-                transition: 'all 0.2s ease-in-out',
-                position: 'relative'
+                transition: 'all 0.2s ease-in-out'
               }}
               size="large"
-              title={`Ukuran: ${getScannerSizeLabel()}`}
+              title="Switch Camera"
             >
-              <CropSquareIcon />
-              <Box sx={{
-                position: 'absolute',
-                top: -8,
-                right: -8,
-                bgcolor: 'primary.main',
-                color: 'white',
-                borderRadius: '50%',
-                width: 24,
-                height: 24,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '0.6rem',
-                fontWeight: 'bold',
-                border: '2px solid white'
-              }}>
-                {scannerSize + 1}
-              </Box>
+              📷
             </IconButton>
-
-            {/* Camera Switch */}
-            {cameras.length > 1 && (
-              <IconButton
-                onClick={() => {
-                  const currentIndex = cameras.findIndex(c => c.id === selectedCamera);
-                  const nextIndex = (currentIndex + 1) % cameras.length;
-                  handleCameraChange(cameras[nextIndex].id);
-                }}
-                sx={{
-                  bgcolor: 'rgba(0,0,0,0.7)',
-                  color: 'white',
-                  border: '2px solid rgba(255,255,255,0.3)',
-                  backdropFilter: 'blur(10px)',
-                  '&:hover': {
-                    transform: 'scale(1.1)',
-                    bgcolor: 'rgba(0,0,0,0.9)'
-                  },
-                  transition: 'all 0.2s ease-in-out'
-                }}
-                size="large"
-                title="Switch Camera"
-              >
-                📷
-              </IconButton>
-            )}
+          )}
 
           </Box>
 
