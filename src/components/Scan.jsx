@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Typography, Button, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Alert } from '@mui/material';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import {
   ArrowBack as ArrowBackIcon, FlipCameraAndroid as FlipCameraAndroidIcon, CropSquare as CropSquareIcon, QrCodeScanner, VolumeUp, VolumeOff,
   Cloud, Settings, Refresh, Error as ErrorIcon, CheckCircle
