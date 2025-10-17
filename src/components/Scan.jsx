@@ -9,6 +9,7 @@ import { db } from '../database';
 import { DatabaseService, TABLES } from '../config/supabase';
 import { supabase } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
+import { DateTimeUtils } from '../utils/dateTime';
 import AnimatedDialog from './AnimatedDialog';
 
 // Add mobile viewport fixes
@@ -745,15 +746,8 @@ Terima kasih atas perhatian Anda 🙏`;
 
 
   const recordAttendance = async (user) => {
-    // Get local date in Asia/Makassar timezone (UTC+8)
-    const getLocalDate = () => {
-      const now = new Date();
-      const makassarTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
-      return makassarTime.toISOString().split('T')[0];
-    };
-
-    const today = getLocalDate();
-    const currentTime = new Date().toTimeString().split(' ')[0];
+    const today = DateTimeUtils.getLocalDate();
+    const currentTime = DateTimeUtils.getLocalTime();
 
     let status, keterangan, att;
 

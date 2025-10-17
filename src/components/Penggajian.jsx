@@ -14,6 +14,7 @@ import { DatabaseService, TABLES } from '../config/supabase';
 import { supabase } from '../config/supabase';
 import { useRealtime } from '../context/RealtimeContext';
 import { AuthService } from '../services/AuthService';
+import { DateTimeUtils } from '../utils/dateTime';
 import SyncStatus from './SyncStatus';
 
 const Penggajian = ({ mode }) => {
@@ -403,11 +404,9 @@ NIY: ${employee.niy || employee.nisn || '-'}
   }, []);
   // Function to get previous month (for payroll processing) - using local timezone
   const getPreviousMonth = () => {
-    // Use Asia/Makassar timezone (UTC+8)
     const now = new Date();
-    const makassarTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-    const currentMonth = makassarTime.getMonth() + 1; // getMonth() returns 0-11
-    const currentYear = makassarTime.getFullYear();
+    const currentMonth = now.getMonth() + 1; // getMonth() returns 0-11
+    const currentYear = now.getFullYear();
 
     // If current month is January, previous month is December of previous year
     if (currentMonth === 1) {
@@ -869,15 +868,7 @@ NIY: ${employee.niy || employee.nisn || '-'}
   const calculateEmployeeAttendance = async (employee) => {
     const identifier = employee.niy || employee.nisn;
 
-    // Use local timezone for date calculations
-    const getLocalDate = (year, month, day = 1) => {
-      const utcDate = new Date(year, month - 1, day);
-      const makassarTime = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000));
-      return makassarTime.toISOString().split('T')[0];
-    };
-
-    const startDate = getLocalDate(selectedYear, selectedMonth, 1);
-    const endDate = getLocalDate(selectedYear, selectedMonth + 1, 0); // Last day of selected month
+    const { startDate, endDate } = DateTimeUtils.getMonthBounds(selectedYear, selectedMonth);
 
     // Get attendance records for the month from both local and Supabase
     let attendanceRecords = [];
@@ -950,12 +941,9 @@ NIY: ${employee.niy || employee.nisn || '-'}
           const serialDate = parseInt(recordDate);
           const excelEpoch = new Date(1900, 0, 1);
           const utcDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
-          const localDate = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000)); // Convert to local timezone
-          recordDate = localDate.toISOString().split('T')[0];
+          recordDate = DateTimeUtils.utcToLocalDate(utcDate);
         } else if (typeof recordDate === 'string') {
-          const utcDate = new Date(recordDate);
-          const localDate = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000)); // Convert to local timezone
-          recordDate = localDate.toISOString().split('T')[0];
+          recordDate = DateTimeUtils.utcToLocalDate(recordDate);
         }
 
         return record.identifier === identifier && recordDate >= startDate && recordDate <= endDate;
@@ -1007,21 +995,7 @@ NIY: ${employee.niy || employee.nisn || '-'}
   };
 
   const calculateWorkingDaysInMonth = (year, month) => {
-    let workingDays = 0;
-    const daysInMonth = new Date(year, month, 0).getDate();
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      // Use local timezone for date calculations
-      const utcDate = new Date(year, month - 1, day);
-      const localDate = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
-      const dayOfWeek = localDate.getDay();
-      // Count weekdays (Monday = 1 to Friday = 5)
-      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-        workingDays++;
-      }
-    }
-
-    return workingDays;
+    return DateTimeUtils.getWorkingDaysInMonth(year, month);
   };
 
   const calculateDeductions = (attendanceData) => {

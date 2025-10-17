@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { db } from '../database';
+import { DateTimeUtils } from '../utils/dateTime';
 import jsPDF from 'jspdf';
 
 const RekapAbsen = ({ mode }) => {
@@ -108,21 +109,28 @@ const RekapAbsen = ({ mode }) => {
   const generateReport = async () => {
     setLoading(true);
     try {
-      // Calculate days in month
-      const daysInSelectedMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+      // Calculate days in month using local timezone
+      const daysInSelectedMonth = DateTimeUtils.getWorkingDaysInMonth(selectedYear, selectedMonth);
       setDaysInMonth(daysInSelectedMonth);
 
-      // Get attendance data for selected month/year
-      const startDate = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}-01`;
-      const endDate = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}-${daysInSelectedMonth.toString().padStart(2, '0')}`;
+      // Get attendance data for selected month/year using local timezone
+      const { startDate, endDate } = DateTimeUtils.getMonthBounds(selectedYear, selectedMonth);
 
-      // Get all attendance records and filter by date to handle different date formats
+      // Get all attendance records and filter by date using local timezone
       let allAttendanceRecords = await db.attendance.toArray();
       let attendanceRecords = allAttendanceRecords.filter(record => {
-        const recordDate = record.tanggal;
-        // Handle different date formats: YYYY-MM-DD or full datetime
-        const dateStr = recordDate.split('T')[0] || recordDate.split(' ')[0];
-        return dateStr >= startDate && dateStr <= endDate;
+        let recordDate = record.tanggal;
+        // Handle different date formats and convert to local timezone
+        if (!isNaN(recordDate) && !isNaN(parseFloat(recordDate))) {
+          // Excel serial date
+          const serialDate = parseInt(recordDate);
+          const excelEpoch = new Date(1900, 0, 1);
+          const utcDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
+          recordDate = DateTimeUtils.utcToLocalDate(utcDate);
+        } else if (typeof recordDate === 'string') {
+          recordDate = DateTimeUtils.utcToLocalDate(recordDate);
+        }
+        return recordDate >= startDate && recordDate <= endDate;
       });
 
       // Filter attendance records by type (guru/siswa)
@@ -132,22 +140,21 @@ const RekapAbsen = ({ mode }) => {
         attendanceRecords = attendanceRecords.filter(record => record.sebagai === 'Siswa');
       }
 
-      // Get all perizinan records and filter by date
+      // Get all perizinan records and filter by date using local timezone
       let allPerizinanRecords = await db.perizinan.toArray();
       let perizinanRecords = allPerizinanRecords.filter(record => {
-        const recordDate = record.tanggal;
+        let recordDate = record.tanggal;
         let dateStr;
 
-        // Handle Excel serial dates (numbers)
+        // Handle Excel serial dates (numbers) - convert to local timezone
         if (!isNaN(recordDate) && !isNaN(parseFloat(recordDate))) {
           const serialDate = parseInt(recordDate);
-          // Convert Excel serial date to JavaScript Date
           const excelEpoch = new Date(1900, 0, 1);
-          const jsDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
-          dateStr = jsDate.toISOString().split('T')[0];
+          const utcDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
+          dateStr = DateTimeUtils.utcToLocalDate(utcDate);
         } else {
-          // Handle different date formats: YYYY-MM-DD or full datetime
-          dateStr = recordDate.split('T')[0] || recordDate.split(' ')[0];
+          // Handle different date formats - convert to local timezone
+          dateStr = DateTimeUtils.utcToLocalDate(recordDate);
         }
 
         return dateStr >= startDate && dateStr <= endDate;
@@ -246,10 +253,12 @@ const RekapAbsen = ({ mode }) => {
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
 
-        // Check if this date is in the future (after today)
+        // Check if this date is in the future (after today) - using local timezone
         const currentDate = new Date();
         const checkDate = new Date(selectedYear, selectedMonth - 1, day);
-        const isFutureDate = checkDate > currentDate;
+        const localCurrentDate = new Date(currentDate.getTime() + DateTimeUtils.MAKASSAR_OFFSET);
+        const localCheckDate = new Date(checkDate.getTime() + DateTimeUtils.MAKASSAR_OFFSET);
+        const isFutureDate = localCheckDate > localCurrentDate;
 
         // Check if this is weekend (Saturday = 6, Sunday = 0)
         const isWeekend = checkDate.getDay() === 0 || checkDate.getDay() === 6;
@@ -282,15 +291,15 @@ const RekapAbsen = ({ mode }) => {
           const perizinanName = normalizeName(r.nama);
           const attendanceName = normalizeName(attendanceMap[key].nama);
 
-          // Normalize perizinan date for comparison
+          // Normalize perizinan date for comparison - convert to local timezone
           let perizinanDateStr = r.tanggal;
           if (!isNaN(r.tanggal) && !isNaN(parseFloat(r.tanggal))) {
             const serialDate = parseInt(r.tanggal);
             const excelEpoch = new Date(1900, 0, 1);
-            const jsDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
-            perizinanDateStr = jsDate.toISOString().split('T')[0];
+            const utcDate = new Date(excelEpoch.getTime() + (serialDate - 2) * 24 * 60 * 60 * 1000);
+            perizinanDateStr = DateTimeUtils.utcToLocalDate(utcDate);
           } else if (typeof r.tanggal === 'string') {
-            perizinanDateStr = r.tanggal.split('T')[0] || r.tanggal.split(' ')[0];
+            perizinanDateStr = DateTimeUtils.utcToLocalDate(r.tanggal);
           }
 
           const nameMatch = perizinanName === attendanceName;
@@ -396,12 +405,13 @@ const RekapAbsen = ({ mode }) => {
             const tanggalSelesai = perizinanRecord.tanggal_selesai;
 
             if (tanggalMulai && tanggalSelesai && tanggalMulai !== tanggalSelesai) {
-              // Multi-day izin - check if current day is within range
+              // Multi-day izin - check if current day is within range (using local timezone)
               const currentDate = new Date(selectedYear, selectedMonth - 1, day);
+              const localCurrentDate = new Date(currentDate.getTime() + DateTimeUtils.MAKASSAR_OFFSET);
               const startDate = new Date(tanggalMulai);
               const endDate = new Date(tanggalSelesai);
-
-              if (currentDate >= startDate && currentDate <= endDate) {
+  
+              if (localCurrentDate >= startDate && localCurrentDate <= endDate) {
                 // Day is within the izin range
                 if (jenisIzin === 'sakit') {
                   status = 'S'; // Sakit day
@@ -651,7 +661,14 @@ const RekapAbsen = ({ mode }) => {
 
     const currentDate = new Date();
     const district = schoolSettings.alamat_kecamatan || 'Kecamatan';
-    const dayDate = `${currentDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`;
+    const localDate = new Date(currentDate.getTime() + DateTimeUtils.MAKASSAR_OFFSET);
+    const dayDate = `${localDate.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Makassar',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    })}`;
 
     doc.setFontSize(8);
     doc.text(`Keterangan:`, margin, yPosition);
@@ -1143,11 +1160,13 @@ const RekapAbsen = ({ mode }) => {
                     const day = dayIndex + 1;
                     const status = item.dailyStatus[day] || '';
 
-                    // Check if this cell can be edited (not future date, not weekend)
+                    // Check if this cell can be edited (not future date, not weekend) - using local timezone
                     const checkDate = new Date(selectedYear, selectedMonth - 1, day);
                     const currentDate = new Date();
-                    const isFutureDate = checkDate > currentDate;
-                    const isWeekend = checkDate.getDay() === 0 || checkDate.getDay() === 6;
+                    const localCurrentDate = new Date(currentDate.getTime() + DateTimeUtils.MAKASSAR_OFFSET);
+                    const localCheckDate = new Date(checkDate.getTime() + DateTimeUtils.MAKASSAR_OFFSET);
+                    const isFutureDate = localCheckDate > localCurrentDate;
+                    const isWeekend = localCheckDate.getDay() === 0 || localCheckDate.getDay() === 6;
                     const canEdit = !isFutureDate && !isWeekend;
 
                     return (
